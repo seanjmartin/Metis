@@ -62,3 +62,32 @@ Terminal 2 (enqueue_tasks.py)          Claude conversation (dispatcher)
 ```
 
 The main conversation never sees the reasoning work — it just gets intelligent results from what looks like a regular tool call.
+
+## Sub-agent dispatcher (recommended)
+
+In production, the dispatcher should be a **background sub-agent** — not the main conversation. This keeps the main conversation free to do other work while the dispatcher polls and processes tasks autonomously.
+
+### How it works
+
+1. The main conversation spawns a background sub-agent with `metis-worker` MCP access
+2. The sub-agent runs the poll-process-deliver loop independently
+3. The main conversation continues — it's not blocked or polluted
+4. MCP servers enqueue tasks via `TaskQueue` and get results back through SQLite
+5. The sub-agent's context is disposable — if it dies, the self-healing protocol restarts it
+
+### Dispatcher prompt
+
+See [dispatcher_prompt.md](dispatcher_prompt.md) for the reference prompt. The key principles:
+
+- **Poll immediately** on start and after every deliver
+- **No deliberation on empty polls** — just poll again (keeps idle cost minimal)
+- **Structured JSON results** — follow the instructions in each task's payload
+- **No text output** — only tool calls (minimizes token usage)
+
+### Observed performance
+
+In testing with 3 tasks (classify, summarize, validate):
+- 14,411 total tokens for the full run
+- 10 tool calls (poll/deliver cycle)
+- 36 seconds total runtime
+- Main conversation context: zero pollution
