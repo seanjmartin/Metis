@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "metis-worker": {
+      "command": "C:\\Python313\\python.exe",
+      "args": ["-m", "metis.presentation.worker_server"],
+      "cwd": "C:\\Users\\sean\\Documents\\Projects\\metis",
+      "env": {
+        "METIS_DB_PATH": "C:/temp/metis.db"
+      }
+    }
+  }
+}
