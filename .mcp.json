@@ -7,6 +7,14 @@
       "env": {
         "METIS_DB_PATH": "C:/temp/metis.db"
       }
+    },
+    "metis-trigger": {
+      "command": "C:\\Python313\\python.exe",
+      "args": ["-m", "metis.presentation.trigger_server"],
+      "cwd": "C:\\Users\\sean\\Documents\\Projects\\metis",
+      "env": {
+        "METIS_DB_PATH": "C:/temp/metis.db"
+      }
     }
   }
 }

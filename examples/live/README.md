@@ -91,3 +91,35 @@ In testing with 3 tasks (classify, summarize, validate):
 - 10 tool calls (poll/deliver cycle)
 - 36 seconds total runtime
 - Main conversation context: zero pollution
+
+## Conversational testing (no separate terminal)
+
+With both `metis-trigger` and `metis-worker` configured as MCP servers, the full round-trip can be tested entirely within a conversation:
+
+### MCP configuration
+
+```json
+{
+  "mcpServers": {
+    "metis-worker": {
+      "command": "python",
+      "args": ["-m", "metis.presentation.worker_server"],
+      "env": { "METIS_DB_PATH": "C:/temp/metis.db" }
+    },
+    "metis-trigger": {
+      "command": "python",
+      "args": ["-m", "metis.presentation.trigger_server"],
+      "env": { "METIS_DB_PATH": "C:/temp/metis.db" }
+    }
+  }
+}
+```
+
+### Test flow
+
+1. Spawn a background dispatcher sub-agent (uses `metis-worker` to poll/deliver)
+2. Call `enqueue(type="classify", payload={...})` via `metis-trigger` — returns a `task_id`
+3. Call `get_result(task_id)` via `metis-trigger` — returns the LLM-generated result
+4. Call `check_health()` via `metis-trigger` — confirms dispatcher is alive
+
+The two MCP servers share the same SQLite database. `metis-trigger` is the enqueue side (for the main conversation), `metis-worker` is the dispatch side (for the sub-agent).
