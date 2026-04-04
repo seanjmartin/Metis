@@ -1,5 +1,7 @@
 """Metis worker MCP server — exposes poll() and deliver() tools to a dispatcher agent.
 
+Also includes a probe tool for discovering the MCP client's timeout limit.
+
 NOT responsible for:
 - Task lifecycle logic (see domain entities)
 - Queue coordination (see application use cases)
@@ -8,7 +10,9 @@ NOT responsible for:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -109,6 +113,26 @@ async def deliver(task_id: str, result: dict[str, Any]) -> dict[str, str]:
         return {"s": "err", "message": deliver_result.error.message}
 
     return {"s": "ok"}
+
+
+@mcp.tool()
+async def probe(duration: int = 30) -> dict[str, object]:
+    """Sleep for the specified duration to test MCP client timeout limits.
+
+    Call with increasing durations (e.g. 10, 30, 50, 60, 70) to find the
+    client's limit. When a call fails or times out, the limit is between
+    the last successful duration and the failed one.
+
+    Recommended METIS_POLL_TIMEOUT = last successful duration - 5 seconds.
+    """
+    start = time.monotonic()
+    await asyncio.sleep(duration)
+    elapsed = time.monotonic() - start
+    return {
+        "completed": True,
+        "requested_seconds": duration,
+        "actual_seconds": round(elapsed, 1),
+    }
 
 
 if __name__ == "__main__":
