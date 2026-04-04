@@ -22,12 +22,13 @@ from metis.infrastructure.sqlite_task_store import SqliteTaskStore
 
 _poll_use_case: PollTaskUseCase | None = None
 _deliver_use_case: DeliverResultUseCase | None = None
+_default_poll_timeout: int = 0
 
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Initialize database and wire use cases on startup."""
-    global _poll_use_case, _deliver_use_case
+    global _poll_use_case, _deliver_use_case, _default_poll_timeout
 
     db_path = os.environ.get("METIS_DB_PATH", "~/.metis/metis.db")
     conn = await init_async_database(db_path)
@@ -37,6 +38,7 @@ async def lifespan(server: FastMCP):
 
     _poll_use_case = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
     _deliver_use_case = DeliverResultUseCase(task_store=task_store)
+    _default_poll_timeout = int(os.environ.get("METIS_POLL_TIMEOUT", "0"))
 
     try:
         yield
@@ -51,18 +53,27 @@ mcp = FastMCP("metis-worker", lifespan=lifespan)
 async def poll(
     worker_id: str = "default",
     capabilities: list[str] | None = None,
+    timeout: int = -1,
 ) -> dict[str, Any]:
     """Poll for the next available task.
+
+    With timeout=0, returns immediately (classic poll).
+    With timeout>0, blocks server-side until a task appears or timeout
+    expires — minimizes idle token cost for LLM dispatchers.
+    Default timeout is read from METIS_POLL_TIMEOUT env var (0 if unset).
 
     Returns {"s": "e"} if no task is available (minimal tokens).
     Returns {"s": "t", "id": ..., "type": ..., "payload": ...} if a task is claimed.
     """
     assert _poll_use_case is not None, "Server not initialized"
 
+    effective_timeout = timeout if timeout >= 0 else _default_poll_timeout
+
     result = await _poll_use_case.execute(
         PollTaskInput(
             worker_id=worker_id,
             capabilities=capabilities or [],
+            timeout_seconds=effective_timeout,
         )
     )
 

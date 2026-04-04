@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import aiosqlite
 
 from metis.application.deliver_result import DeliverResultInput, DeliverResultUseCase
@@ -61,6 +63,78 @@ class TestPollTask:
         hb = await hb_store.get(WorkerId(value="w1"))
         assert hb is not None
         assert hb.capabilities == ["browse-as-me"]
+
+
+class TestLongPoll:
+    async def test_should_return_immediately_when_task_available(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
+
+        result = await poll.execute(
+            PollTaskInput(worker_id="w1", capabilities=[], timeout_seconds=10)
+        )
+
+        assert result.is_ok
+        assert result.value is not None
+        assert result.value.type == "test"
+
+    async def test_should_return_none_after_timeout(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        result = await poll.execute(
+            PollTaskInput(worker_id="w1", capabilities=[], timeout_seconds=1.5)
+        )
+
+        assert result.is_ok
+        assert result.value is None
+
+    async def test_should_pick_up_task_enqueued_during_wait(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        async def enqueue_after_delay() -> None:
+            await asyncio.sleep(0.5)
+            await enqueue.execute(EnqueueTaskInput(type="delayed", payload={}))
+
+        asyncio.create_task(enqueue_after_delay())
+
+        result = await poll.execute(
+            PollTaskInput(worker_id="w1", capabilities=[], timeout_seconds=5)
+        )
+
+        assert result.is_ok
+        assert result.value is not None
+        assert result.value.type == "delayed"
+
+    async def test_should_update_heartbeat_during_long_poll(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        """Heartbeat should be updated at start and end of a long poll."""
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        await poll.execute(
+            PollTaskInput(worker_id="w1", capabilities=["test"], timeout_seconds=1.5)
+        )
+
+        hb = await hb_store.get(WorkerId(value="w1"))
+        assert hb is not None
+        assert hb.is_alive(timeout_seconds=10)
 
 
 class TestDeliverResult:
