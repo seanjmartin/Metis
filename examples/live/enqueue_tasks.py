@@ -61,6 +61,19 @@ TASKS = [
         },
         "ttl_seconds": 120,
     },
+    {
+        "type": "research",
+        "payload": {
+            "instructions": (
+                "Research the Metis project codebase (in the current working directory) "
+                "and answer: What are the key design decisions, and what problem does "
+                "Metis solve? Read the relevant docs and source files.\n\n"
+                "Return JSON: {\"summary\": str, \"design_decisions\": [str], "
+                "\"files_consulted\": [str]}"
+            ),
+        },
+        "ttl_seconds": 180,
+    },
 ]
 
 

@@ -123,3 +123,27 @@ With both `metis-trigger` and `metis-worker` configured as MCP servers, the full
 4. Call `check_health()` via `metis-trigger` — confirms dispatcher is alive
 
 The two MCP servers share the same SQLite database. `metis-trigger` is the enqueue side (for the main conversation), `metis-worker` is the dispatch side (for the sub-agent).
+
+## Hybrid routing dispatcher
+
+The dispatcher can route tasks — handling simple ones directly and spawning specialized sub-agents for complex work:
+
+```
+Dispatcher sub-agent (long-running, polls continuously)
+  |
+  +-- poll() → classify task → handles directly → deliver()
+  +-- poll() → validate task → handles directly → deliver()
+  +-- poll() → research task → spawns child sub-agent
+        |
+        child (disposable, has Read/Grep/Glob + deliver)
+          +-- reads files, searches codebase
+          +-- deliver() → result flows back through SQLite
+          +-- context discarded
+  +-- poll() → continues...
+```
+
+**Simple tasks** (classify, validate, summarize) stay in the dispatcher — fast, no spawn overhead.
+
+**Complex tasks** (research, browser extraction) get their own sub-agent with specialized tools. The child calls `deliver()` directly via metis-worker, so the dispatcher doesn't wait — it keeps polling.
+
+See [dispatcher_prompt.md](dispatcher_prompt.md) for both the simple and routing dispatcher prompts.
