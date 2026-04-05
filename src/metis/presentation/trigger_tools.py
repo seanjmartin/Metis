@@ -95,7 +95,7 @@ def register_trigger_tools(
     async def get_result(task_id: str, timeout: float = 30) -> dict[str, Any]:
         """Wait for a task's result.
 
-        Returns {"status": "complete", "result": {...}} if the task completes.
+        Returns {"status": "complete", "result": {...}, "input_tokens": N, "output_tokens": N}.
         Returns {"status": "timeout"} if the timeout expires.
         Returns {"status": "error", "message": "..."} on failure.
         """
@@ -105,16 +105,25 @@ def register_trigger_tools(
         from metis.domain.value_objects import TaskId
 
         try:
-            result = await state["queue"].wait_for_result(
-                TaskId(value=task_id), timeout=timeout
-            )
+            tid = TaskId(value=task_id)
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+
+        try:
+            result = await state["queue"].wait_for_result(tid, timeout=timeout)
         except (RuntimeError, ValueError) as e:
             return {"status": "error", "message": str(e)}
 
         if result is None:
             return {"status": "timeout"}
 
-        return {"status": "complete", "result": result}
+        input_tokens, output_tokens = state["queue"].get_task_tokens(tid)
+        response: dict[str, Any] = {"status": "complete", "result": result}
+        if input_tokens is not None:
+            response["input_tokens"] = input_tokens
+        if output_tokens is not None:
+            response["output_tokens"] = output_tokens
+        return response
 
     @mcp.tool()
     async def check_health(timeout_seconds: int = 60) -> dict[str, Any]:

@@ -28,7 +28,7 @@ SQLite in WAL (Write-Ahead Logging) mode.
 
 ## Trade-offs
 
-- **Latency**: Polling-based (100ms intervals), not push-based. Acceptable for reasoning tasks that take seconds to execute.
+- **Latency**: Polling-based (1-second intervals during long-poll), not push-based. Acceptable for reasoning tasks that take seconds to execute.
 - **Throughput ceiling**: SQLite write throughput is limited to ~1000 writes/sec. Acceptable — Metis dispatches reasoning tasks, not high-frequency messages.
 - **File locking on Windows**: WAL mode behavior differs slightly. Mitigated with `busy_timeout=5000ms`.
 

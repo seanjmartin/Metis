@@ -52,9 +52,9 @@ One class, one `execute()` method, typed input/output, returns `Result[T]`.
 ### 5. Presentation: MCP Tool
 
 ```python
-# presentation/worker_server.py
+# presentation/worker_tools.py
 @mcp.tool()
-async def poll(worker_id, capabilities) -> dict:
+async def poll(worker_id, capabilities, timeout=-1) -> dict:
     result = await _poll_use_case.execute(PollTaskInput(...))
     if result.value is None:
         return {"s": "e"}  # Minimal tokens

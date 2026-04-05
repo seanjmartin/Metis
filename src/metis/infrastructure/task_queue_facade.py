@@ -149,6 +149,22 @@ class TaskQueue:
         last_seen = datetime.fromisoformat(row["last_seen"])
         return datetime.now(UTC) < last_seen + timedelta(seconds=timeout_seconds)
 
+    def get_task_tokens(self, task_id: TaskId) -> tuple[int | None, int | None]:
+        """Get token counts for a completed task. Synchronous.
+
+        Returns (input_tokens, output_tokens). Both may be None if not reported.
+        """
+        conn = self._get_sync_conn()
+        row = conn.execute(
+            "SELECT input_tokens, output_tokens FROM tasks WHERE id = ?",
+            (task_id.value,),
+        ).fetchone()
+
+        if row is None:
+            return None, None
+
+        return row["input_tokens"], row["output_tokens"]
+
     def close(self) -> None:
         """Close the underlying sync connection."""
         if self._sync_conn is not None:
