@@ -71,10 +71,12 @@ def register_trigger_tools(
         payload: dict[str, Any],
         priority: int = 0,
         ttl_seconds: int = 300,
+        capabilities_required: list[str] | None = None,
     ) -> dict[str, Any]:
         """Enqueue a reasoning task for the background dispatcher.
 
         Returns {"task_id": "<uuid>"} on success.
+        Use capabilities_required to restrict which workers can claim this task.
         """
         if state["queue"] is None:
             return {"status": "error", "message": "Trigger tools not initialized"}
@@ -84,6 +86,7 @@ def register_trigger_tools(
             payload=payload,
             priority=priority,
             ttl_seconds=ttl_seconds,
+            capabilities_required=capabilities_required,
         )
 
         return {"task_id": task_id.value}

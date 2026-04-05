@@ -19,6 +19,8 @@ from metis.domain.value_objects import TaskId
 class DeliverResultInput:
     task_id: str
     result: dict[str, Any]
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class DeliverResultUseCase:
@@ -43,6 +45,9 @@ class DeliverResultUseCase:
             task.complete(input.result)
         except ValueError as e:
             return Err(InvalidTransitionError(message=str(e)))
+
+        task.input_tokens = input.input_tokens
+        task.output_tokens = input.output_tokens
 
         await self._task_store.update(task)
         return Ok(None)

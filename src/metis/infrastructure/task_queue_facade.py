@@ -58,9 +58,10 @@ class TaskQueue:
         self,
         *,
         type: str,
-        payload: dict,
+        payload: dict[str, Any],
         priority: int = 0,
         ttl_seconds: int = 300,
+        capabilities_required: list[str] | None = None,
     ) -> TaskId:
         """Create and enqueue a new task. Synchronous — safe from any context.
 
@@ -73,8 +74,8 @@ class TaskQueue:
         conn.execute(
             """
             INSERT INTO tasks (id, type, payload, status, priority,
-                               ttl_seconds, created_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?)
+                               ttl_seconds, created_at, capabilities_required)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
             """,
             (
                 task_id.value,
@@ -83,6 +84,7 @@ class TaskQueue:
                 priority,
                 ttl_seconds,
                 now.isoformat(),
+                json.dumps(capabilities_required or []),
             ),
         )
         conn.commit()

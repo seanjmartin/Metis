@@ -236,3 +236,66 @@ class TestDeliverResult:
 
         assert result.is_error
         assert result.error.code == "INVALID_TRANSITION"
+
+    async def test_should_store_token_counts(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+        deliver = DeliverResultUseCase(task_store=task_store)
+
+        enqueue_result = await enqueue.execute(
+            EnqueueTaskInput(type="test", payload={})
+        )
+        await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
+
+        result = await deliver.execute(
+            DeliverResultInput(
+                task_id=enqueue_result.value.value,
+                result={"answer": 42},
+                input_tokens=1500,
+                output_tokens=500,
+            )
+        )
+
+        assert result.is_ok
+        task = await task_store.get(enqueue_result.value)
+        assert task is not None
+        assert task.input_tokens == 1500
+        assert task.output_tokens == 500
+
+
+class TestCapabilityFilteredPolling:
+    async def test_should_only_claim_matching_tasks(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        # Enqueue a task requiring browse-as-me
+        await enqueue.execute(
+            EnqueueTaskInput(
+                type="browser",
+                payload={},
+                capabilities_required=["browse-as-me"],
+            )
+        )
+
+        # Poll without the capability — should get nothing
+        result = await poll.execute(
+            PollTaskInput(worker_id="w1", capabilities=["file-access"])
+        )
+        assert result.is_ok
+        assert result.value is None
+
+        # Poll with the capability — should get the task
+        result = await poll.execute(
+            PollTaskInput(worker_id="w2", capabilities=["browse-as-me"])
+        )
+        assert result.is_ok
+        assert result.value is not None
+        assert result.value.type == "browser"

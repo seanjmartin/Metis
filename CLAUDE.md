@@ -88,12 +88,19 @@ Presentation → Application → Domain ← Infrastructure
 from metis import TaskQueue
 
 queue = TaskQueue(db_path="~/.myserver/metis.db")
-task_id = queue.enqueue(type="classify", payload={...}, ttl_seconds=60)
+task_id = queue.enqueue(
+    type="classify",
+    payload={...},
+    ttl_seconds=60,
+    capabilities_required=["browse-as-me"],  # only workers with this capability can claim
+)
 result = await queue.wait_for_result(task_id, timeout=30)
 is_alive = queue.is_worker_alive()
 ```
 
 `enqueue()` and `is_worker_alive()` are sync. `wait_for_result()` is async. See [ADR 002](docs/adr/002-sync-enqueue-async-wait.md) for why.
+
+The `deliver()` tool accepts optional `input_tokens` and `output_tokens` for per-task cost tracking.
 
 ### Embeddable (for hosting tools in an existing MCP server)
 

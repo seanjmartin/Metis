@@ -17,7 +17,7 @@ from metis.domain.value_objects import TaskId, TaskPriority, TaskStatus, WorkerI
 
 
 class SqliteTaskStore:
-    """Persists tasks in SQLite with atomic claim support.
+    """Persists tasks in SQLite with atomic claim support and capability filtering.
 
     NOT responsible for:
     - Task status transition validation (see Task entity)
@@ -31,8 +31,9 @@ class SqliteTaskStore:
         await self._conn.execute(
             """
             INSERT INTO tasks (id, type, payload, status, result, priority,
-                               ttl_seconds, created_at, claimed_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ttl_seconds, created_at, claimed_at, completed_at,
+                               capabilities_required, input_tokens, output_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.id.value,
@@ -45,6 +46,9 @@ class SqliteTaskStore:
                 task.created_at.isoformat(),
                 task.claimed_at.isoformat() if task.claimed_at else None,
                 task.completed_at.isoformat() if task.completed_at else None,
+                json.dumps(task.capabilities_required),
+                task.input_tokens,
+                task.output_tokens,
             ),
         )
         await self._conn.commit()
@@ -61,7 +65,12 @@ class SqliteTaskStore:
     async def claim_next(
         self, capabilities: list[str], worker_id: WorkerId
     ) -> Task | None:
-        """Atomically claim the highest-priority pending task."""
+        """Atomically claim the highest-priority pending task matching capabilities.
+
+        A task is claimable if every entry in its capabilities_required list
+        is present in the worker's capabilities list. Tasks with empty
+        capabilities_required are claimable by any worker.
+        """
         cursor = await self._conn.execute(
             """
             UPDATE tasks
@@ -69,12 +78,16 @@ class SqliteTaskStore:
             WHERE id = (
                 SELECT id FROM tasks
                 WHERE status = 'pending'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM json_each(tasks.capabilities_required) AS req
+                      WHERE req.value NOT IN (SELECT value FROM json_each(?))
+                  )
                 ORDER BY priority DESC, created_at ASC
                 LIMIT 1
             )
             RETURNING *
             """,
-            (datetime.now(UTC).isoformat(),),
+            (datetime.now(UTC).isoformat(), json.dumps(capabilities)),
         )
         row = await cursor.fetchone()
         await self._conn.commit()
@@ -86,7 +99,8 @@ class SqliteTaskStore:
         await self._conn.execute(
             """
             UPDATE tasks
-            SET status = ?, result = ?, claimed_at = ?, completed_at = ?
+            SET status = ?, result = ?, claimed_at = ?, completed_at = ?,
+                input_tokens = ?, output_tokens = ?
             WHERE id = ?
             """,
             (
@@ -94,6 +108,8 @@ class SqliteTaskStore:
                 json.dumps(task.result) if task.result is not None else None,
                 task.claimed_at.isoformat() if task.claimed_at else None,
                 task.completed_at.isoformat() if task.completed_at else None,
+                task.input_tokens,
+                task.output_tokens,
                 task.id.value,
             ),
         )
@@ -129,9 +145,16 @@ class SqliteTaskStore:
             result=json.loads(row["result"]) if row["result"] is not None else None,
             priority=TaskPriority(value=row["priority"]),
             ttl_seconds=row["ttl_seconds"],
+            capabilities_required=json.loads(row["capabilities_required"]),
             created_at=datetime.fromisoformat(row["created_at"]),
-            claimed_at=datetime.fromisoformat(row["claimed_at"]) if row["claimed_at"] else None,
-            completed_at=(
-                datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
+            claimed_at=(
+                datetime.fromisoformat(row["claimed_at"]) if row["claimed_at"] else None
             ),
+            completed_at=(
+                datetime.fromisoformat(row["completed_at"])
+                if row["completed_at"]
+                else None
+            ),
+            input_tokens=row["input_tokens"],
+            output_tokens=row["output_tokens"],
         )

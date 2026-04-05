@@ -7,7 +7,7 @@ NOT responsible for:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,6 +23,7 @@ class EnqueueTaskInput:
     payload: dict[str, Any]
     priority: int = 0
     ttl_seconds: int = 300
+    capabilities_required: list[str] = field(default_factory=list)
 
 
 class EnqueueTaskUseCase:
@@ -43,6 +44,7 @@ class EnqueueTaskUseCase:
             payload=input.payload,
             priority=TaskPriority(value=input.priority),
             ttl_seconds=input.ttl_seconds,
+            capabilities_required=input.capabilities_required,
             created_at=datetime.now(UTC),
         )
         await self._task_store.insert(task)

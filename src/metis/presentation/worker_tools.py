@@ -131,8 +131,15 @@ def register_worker_tools(
         }
 
     @mcp.tool()
-    async def deliver(task_id: str, result: dict[str, Any]) -> dict[str, str]:
+    async def deliver(
+        task_id: str,
+        result: dict[str, Any],
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> dict[str, str]:
         """Deliver a completed result for a claimed task.
+
+        Optionally include input_tokens and output_tokens for cost tracking.
 
         Returns {"s": "ok"} on success.
         Returns {"s": "err", "message": ...} on failure.
@@ -141,7 +148,12 @@ def register_worker_tools(
             return {"s": "err", "message": "Worker tools not initialized"}
 
         deliver_result = await state["deliver_uc"].execute(
-            DeliverResultInput(task_id=task_id, result=result)
+            DeliverResultInput(
+                task_id=task_id,
+                result=result,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
         )
 
         if deliver_result.is_error:

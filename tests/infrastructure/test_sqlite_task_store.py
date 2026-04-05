@@ -189,3 +189,111 @@ class TestExpireStale:
 
         count = await store.expire_stale(datetime.now(UTC))
         assert count == 0
+
+
+class TestCapabilityFiltering:
+    async def test_should_claim_task_with_matching_capabilities(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        task.capabilities_required = ["browse-as-me"]
+        await store.insert(task)
+
+        claimed = await store.claim_next(
+            ["browse-as-me", "file-access"], WorkerId(value="w1")
+        )
+        assert claimed is not None
+        assert claimed.id == task.id
+
+    async def test_should_skip_task_without_matching_capabilities(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        task.capabilities_required = ["browse-as-me"]
+        await store.insert(task)
+
+        claimed = await store.claim_next(
+            ["file-access"], WorkerId(value="w1")
+        )
+        assert claimed is None
+
+    async def test_should_claim_task_with_no_requirements(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()  # capabilities_required defaults to []
+        await store.insert(task)
+
+        claimed = await store.claim_next([], WorkerId(value="w1"))
+        assert claimed is not None
+
+    async def test_should_skip_restricted_and_claim_unrestricted(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        restricted = _make_task(priority=10)
+        restricted.capabilities_required = ["browse-as-me"]
+        unrestricted = _make_task(priority=0)
+
+        await store.insert(restricted)
+        await store.insert(unrestricted)
+
+        # Worker without browse-as-me should skip the higher-priority restricted task
+        claimed = await store.claim_next([], WorkerId(value="w1"))
+        assert claimed is not None
+        assert claimed.id == unrestricted.id
+
+    async def test_should_require_all_capabilities(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        task.capabilities_required = ["browse-as-me", "file-access"]
+        await store.insert(task)
+
+        # Only one of two required — should not claim
+        claimed = await store.claim_next(
+            ["browse-as-me"], WorkerId(value="w1")
+        )
+        assert claimed is None
+
+        # Both required — should claim
+        claimed = await store.claim_next(
+            ["browse-as-me", "file-access"], WorkerId(value="w1")
+        )
+        assert claimed is not None
+
+
+class TestTokenTracking:
+    async def test_should_round_trip_token_counts(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        await store.insert(task)
+
+        claimed = await store.claim_next([], WorkerId(value="w1"))
+        assert claimed is not None
+        claimed.complete({"answer": 42})
+        claimed.input_tokens = 1500
+        claimed.output_tokens = 500
+        await store.update(claimed)
+
+        retrieved = await store.get(task.id)
+        assert retrieved is not None
+        assert retrieved.input_tokens == 1500
+        assert retrieved.output_tokens == 500
+
+    async def test_should_default_tokens_to_none(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        await store.insert(task)
+
+        retrieved = await store.get(task.id)
+        assert retrieved is not None
+        assert retrieved.input_tokens is None
+        assert retrieved.output_tokens is None

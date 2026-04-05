@@ -23,7 +23,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     ttl_seconds INTEGER NOT NULL DEFAULT 300,
     created_at  TEXT NOT NULL,
     claimed_at  TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    capabilities_required TEXT NOT NULL DEFAULT '[]',
+    input_tokens  INTEGER,
+    output_tokens INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS heartbeats (

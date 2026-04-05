@@ -292,11 +292,11 @@ The MCP server author doesn't need to know about agents, models, or tool configu
 
 3. ~~**Task schemas**~~ — **Decided: flexible JSON payloads with natural language instructions.** Task types are unregistered strings; the dispatcher prompt handles routing. This keeps the library simple and the intelligence in the LLM.
 
-4. **Worker capability matching** — Infrastructure exists (capabilities stored in heartbeats, parameter accepted by `claim_next`) but task filtering by capability is not yet implemented. The `claim_next` SQL currently ignores capabilities and claims by priority order only. Future work: add `required_capabilities` to tasks table and filter in the claim query.
+4. ~~**Worker capability matching**~~ — **Implemented.** Tasks have a `capabilities_required` field (JSON array in SQLite). `claim_next` filters with a `NOT EXISTS` subquery using `json_each` — a task is only claimable if the worker's capabilities are a superset of the task's requirements. Tasks with empty requirements are claimable by any worker.
 
 5. ~~**Cross-conversation persistence**~~ — **Tasks expire via TTL.** `expire_stale()` runs lazily on enqueue and poll. Uncompleted tasks from a dead dispatcher expire after their TTL and are not picked up. Self-healing protocol signals the calling LLM to spawn a new dispatcher.
 
-6. **Cost tracking** — Not implemented. Token usage is visible in the Claude Agent SDK's task notifications but not tracked by Metis itself. Would require the dispatcher to report usage back via deliver() or a separate channel.
+6. ~~**Cost tracking**~~ — **Implemented.** `deliver()` accepts optional `input_tokens` and `output_tokens` parameters. Stored per-task in SQLite. The dispatcher reports usage alongside results; callers can query token counts from completed tasks.
 
 7. **Credential/tool access** — Deferred to the dispatcher prompt. The dispatcher knows its own MCP server access; the hybrid routing pattern lets it spawn specialized sub-agents with the right tools per task type.
 

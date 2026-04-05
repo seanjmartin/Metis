@@ -30,9 +30,12 @@ class Task:
     result: dict[str, Any] | None = None
     priority: TaskPriority = field(default_factory=TaskPriority)
     ttl_seconds: int = 300
+    capabilities_required: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     claimed_at: datetime | None = None
     completed_at: datetime | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         if not self.type or not self.type.strip():
