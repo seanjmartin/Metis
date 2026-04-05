@@ -71,7 +71,7 @@ def register_trigger_tools(
         payload: dict[str, Any],
         priority: int = 0,
         ttl_seconds: int = 300,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Enqueue a reasoning task for the background dispatcher.
 
         Returns {"task_id": "<uuid>"} on success.
@@ -114,7 +114,7 @@ def register_trigger_tools(
         return {"status": "complete", "result": result}
 
     @mcp.tool()
-    async def check_health(timeout_seconds: int = 60) -> dict[str, bool]:
+    async def check_health(timeout_seconds: int = 60) -> dict[str, Any]:
         """Check if the dispatcher worker is alive.
 
         Returns {"worker_alive": true/false}.

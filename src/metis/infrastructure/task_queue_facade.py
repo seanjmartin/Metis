@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -143,8 +143,6 @@ class TaskQueue:
 
         if row is None:
             return False
-
-        from datetime import timedelta
 
         last_seen = datetime.fromisoformat(row["last_seen"])
         return datetime.now(UTC) < last_seen + timedelta(seconds=timeout_seconds)

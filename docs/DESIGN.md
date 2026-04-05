@@ -286,19 +286,19 @@ The MCP server author doesn't need to know about agents, models, or tool configu
 
 ## Open Questions
 
-1. **SQLite vs named pipes vs filesystem watches** — SQLite is the current choice for simplicity and robustness. Named pipes would be lower latency but more complex. Worth benchmarking.
+1. ~~**SQLite vs named pipes vs filesystem watches**~~ — **Decided: SQLite WAL.** See [ADR 001](adr/001-sqlite-as-message-bus.md). Long-poll support (1-second check interval) reduces the latency gap with push-based approaches.
 
-2. **Multiple dispatchers** — Can/should multiple dispatcher agents run concurrently for parallelism? Would need task claiming to prevent double-processing (the `status='claimed'` transition handles this).
+2. ~~**Multiple dispatchers**~~ — **Supported.** Atomic `UPDATE...RETURNING` in `claim_next` prevents double-claiming. Tested and proven.
 
-3. **Task schemas** — Should task types have registered schemas so workers know what to expect? Or keep it flexible with JSON payloads and natural language instructions?
+3. ~~**Task schemas**~~ — **Decided: flexible JSON payloads with natural language instructions.** Task types are unregistered strings; the dispatcher prompt handles routing. This keeps the library simple and the intelligence in the LLM.
 
-4. **Worker capability matching** — The dispatcher knows what tools it (and its sub-agents) have access to. Should it advertise capabilities so the MCP server only queues tasks the current dispatcher can handle?
+4. **Worker capability matching** — Infrastructure exists (capabilities stored in heartbeats, parameter accepted by `claim_next`) but task filtering by capability is not yet implemented. The `claim_next` SQL currently ignores capabilities and claims by priority order only. Future work: add `required_capabilities` to tasks table and filter in the claim query.
 
-5. **Cross-conversation persistence** — The SQLite database persists across conversations. Should uncompleted tasks from a previous conversation be picked up by a new dispatcher? Or should they expire?
+5. ~~**Cross-conversation persistence**~~ — **Tasks expire via TTL.** `expire_stale()` runs lazily on enqueue and poll. Uncompleted tasks from a dead dispatcher expire after their TTL and are not picked up. Self-healing protocol signals the calling LLM to spawn a new dispatcher.
 
-6. **Cost tracking** — Each Metis dispatch costs LLM tokens. Should the library track and report token usage so MCP server authors can understand the cost of their reasoning dispatches?
+6. **Cost tracking** — Not implemented. Token usage is visible in the Claude Agent SDK's task notifications but not tracked by Metis itself. Would require the dispatcher to report usage back via deliver() or a separate channel.
 
-7. **Credential/tool access** — The dispatcher agent needs MCP server access (browse-as-me, etc.) configured in the calling environment. How does the MCP server communicate what tools a task needs without knowing the agent's environment?
+7. **Credential/tool access** — Deferred to the dispatcher prompt. The dispatcher knows its own MCP server access; the hybrid routing pattern lets it spawn specialized sub-agents with the right tools per task type.
 
 ## Project Structure
 
