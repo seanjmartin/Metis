@@ -83,3 +83,25 @@ result = await queue.wait_for_result(task_id, timeout=60)
 | Entry points | Tool (thin: validate → use case → format) | `poll()`, `deliver()` |
 | Errors | `Result[T]` for business errors, exceptions for infra | `Ok(task_id)`, `Err(TaskNotFoundError(...))` |
 | Public API | Deep module facade | `TaskQueue` |
+| Embeddable tools | Registration function + handle | `register_worker_tools(mcp, db_path)` |
+
+## Embedded Integration Pattern
+
+For MCP servers that want to host Metis tools directly (no separate process):
+
+```python
+from mcp.server.fastmcp import FastMCP
+from metis.presentation.worker_tools import register_worker_tools
+
+# Your existing MCP server
+mcp = FastMCP("my-server", lifespan=my_lifespan)
+
+# Embed Metis worker tools — dispatcher sub-agent connects to your server
+handle = register_worker_tools(mcp, db_path="~/.myserver/metis.db")
+
+# Use TaskQueue programmatically for enqueue/wait
+from metis import TaskQueue
+queue = TaskQueue(db_path="~/.myserver/metis.db")
+```
+
+`register_worker_tools` returns a `WorkerToolsHandle` with references to `poll`, `deliver`, `probe`, and `lifespan`. The lifespan must be composed with the host server's lifespan (pass it to FastMCP constructor or attach it).

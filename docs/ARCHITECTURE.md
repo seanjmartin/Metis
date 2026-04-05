@@ -38,7 +38,13 @@ Implements domain protocols. Contains `SqliteTaskStore`, `SqliteHeartbeatStore`,
 
 ### Presentation (`src/metis/presentation/`)
 
-Entry points — FastMCP server with `poll()` and `deliver()` tools. Thin: validate input, call use case, format output.
+Entry points — FastMCP servers and embeddable tool registration. Thin: validate input, call use case, format output.
+
+Contains:
+- `worker_tools.py` — embeddable `register_worker_tools(mcp, db_path)` for poll/deliver/probe
+- `trigger_tools.py` — embeddable `register_trigger_tools(mcp, db_path)` for enqueue/get_result/check_health
+- `worker_server.py` — standalone metis-worker MCP server (uses worker_tools internally)
+- `trigger_server.py` — standalone metis-trigger MCP server (uses trigger_tools internally)
 
 **May import:** Application (use cases) and domain (entities, value objects for type hints).
 
@@ -57,3 +63,22 @@ Each layer depends only on layers interior to it. The domain is the innermost la
 - `is_worker_alive(timeout_seconds) -> bool` — sync
 
 Integrating MCP servers import only `from metis import TaskQueue` and never interact with the layers directly.
+
+## Two MCP Servers, One Database
+
+```
+metis-trigger (enqueue side)          metis-worker (dispatcher side)
+  enqueue() ──┐                    ┌── poll(timeout=55)
+  get_result() │  ← SQLite WAL →  │  deliver()
+  check_health()┘                    └── probe()
+```
+
+Both servers share the same SQLite database via `METIS_DB_PATH`. The trigger server is for the main conversation (enqueue tasks, get results). The worker server is for the dispatcher sub-agent (poll for work, deliver results).
+
+For standalone deployment, run them as separate processes. For embedded deployment, use `register_worker_tools()` / `register_trigger_tools()` to add Metis tools to an existing MCP server — no separate processes needed.
+
+## Long-Poll
+
+`poll(timeout=N)` blocks server-side, checking SQLite every 1 second and updating the heartbeat every 15 seconds. Returns immediately when a task appears, or `{"s": "e"}` after timeout. This minimizes idle token cost — the dispatcher LLM only sees a response when there's actual work.
+
+Use `probe(duration=N)` on `metis-worker` to discover the MCP client's timeout limit. Set `METIS_POLL_TIMEOUT` to the discovered limit minus 5 seconds.

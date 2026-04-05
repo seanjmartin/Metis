@@ -30,31 +30,42 @@ pytest tests/application/test_roundtrip.py -v
 ruff check src/ tests/
 ruff format --check src/ tests/
 
-# Run the worker server
+# Run the worker server (standalone)
 METIS_DB_PATH=~/.metis/metis.db python -m metis.presentation.worker_server
 
+# Run the trigger server (standalone)
+METIS_DB_PATH=~/.metis/metis.db python -m metis.presentation.trigger_server
+
 # Run simulated dispatcher (for testing)
-python examples/simulate_dispatcher.py --db ~/.metis/metis.db
+python examples/simulated/dispatcher.py --db ~/.metis/metis.db
+
+# Probe MCP client timeout (via metis-worker's probe tool)
+# Call probe(duration=25), probe(duration=50), etc. to find the limit
+# Set METIS_POLL_TIMEOUT to (last successful - 5 seconds)
 ```
 
 ## Architecture
 
-Three components:
+Four components:
 
-1. **`metis` (Python package)** — Shared library providing `TaskQueue`. Any MCP server imports this to enqueue work and wait for results. Uses SQLite in WAL mode as the message bus.
+1. **`metis` (Python package)** — Shared library providing `TaskQueue` and embeddable tool registration. Any MCP server imports this to enqueue work and wait for results. Uses SQLite in WAL mode as the message bus.
 
-2. **`metis-worker` (MCP server)** — Exposes `poll()` and `deliver()` tools to a dispatcher agent.
+2. **`metis-worker` (MCP server)** — Exposes `poll()`, `deliver()`, and `probe()` tools to a dispatcher agent. Supports long-polling via `timeout` parameter.
 
-3. **Dispatcher agent** — Background sub-agent that polls, executes tasks, and delivers results.
+3. **`metis-trigger` (MCP server)** — Exposes `enqueue()`, `get_result()`, and `check_health()` tools for the main conversation or testing.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer responsibilities and dependency rules. See [docs/PATTERNS.md](docs/PATTERNS.md) for the canonical vertical slice.
+4. **Dispatcher agent** — Background sub-agent that polls, executes tasks (possibly spawning its own children for complex work), and delivers results.
+
+Both MCP servers share the same SQLite database via `METIS_DB_PATH`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer responsibilities and dependency rules. See [docs/PATTERNS.md](docs/PATTERNS.md) for the canonical vertical slice.
 
 ### Operational patterns
 
 - **Fire-and-forget**: Queue work, return immediately. Results available on next call.
 - **Block-and-wait**: Queue work, hold tool call open until result or timeout.
+- **Long-poll**: `poll(timeout=55)` blocks server-side, only returning when a task appears or timeout expires. Minimizes idle dispatcher token cost.
 - **Self-healing**: Check heartbeat; if dispatcher dead, return `metis_dispatcher_required: true` signal.
 - **Disposable contexts**: Worker agent contexts discarded after task completion.
+- **Hybrid routing**: Dispatcher handles simple tasks directly, spawns sub-agents for complex work (browser, research).
 
 ## Layered Architecture
 
@@ -67,9 +78,11 @@ Presentation → Application → Domain ← Infrastructure
 - **Domain** (`src/metis/domain/`) — Entities, value objects, protocols, errors. Zero external imports. No I/O.
 - **Application** (`src/metis/application/`) — Use cases. Depends on domain only. No I/O.
 - **Infrastructure** (`src/metis/infrastructure/`) — SQLite stores, database init, `TaskQueue` facade. Depends on domain.
-- **Presentation** (`src/metis/presentation/`) — FastMCP server with `poll()`, `deliver()` tools.
+- **Presentation** (`src/metis/presentation/`) — FastMCP servers (`worker_server.py`, `trigger_server.py`) and embeddable tool registration (`worker_tools.py`, `trigger_tools.py`).
 
 ## Public API
+
+### Programmatic (for MCP server code)
 
 ```python
 from metis import TaskQueue
@@ -81,6 +94,22 @@ is_alive = queue.is_worker_alive()
 ```
 
 `enqueue()` and `is_worker_alive()` are sync. `wait_for_result()` is async. See [ADR 002](docs/adr/002-sync-enqueue-async-wait.md) for why.
+
+### Embeddable (for hosting tools in an existing MCP server)
+
+```python
+from metis.presentation.worker_tools import register_worker_tools
+from metis.presentation.trigger_tools import register_trigger_tools
+
+# Add dispatcher tools to your MCP server
+mcp = FastMCP("my-server", lifespan=my_lifespan)
+worker_handle = register_worker_tools(mcp, db_path="~/.myserver/metis.db")
+
+# Or add trigger tools for conversational testing
+trigger_handle = register_trigger_tools(mcp, db_path="~/.myserver/metis.db")
+```
+
+This eliminates the need for separate `metis-worker` / `metis-trigger` processes.
 
 ## Code Conventions
 
@@ -132,6 +161,8 @@ Test names describe behavior: `test_should_reject_expired_task`.
 - **Sync enqueue / async wait** — see [ADR 002](docs/adr/002-sync-enqueue-async-wait.md)
 - **Atomic `claim_next`** — `UPDATE...RETURNING` prevents double-claiming by concurrent dispatchers
 - **Metis is always optional** — every integration point has a deterministic fallback
+- **Long-poll** — `poll(timeout=N)` blocks server-side to minimize idle token cost
+- **Embeddable tools** — `register_worker_tools()` / `register_trigger_tools()` let MCP servers host Metis tools directly
 
 ## Documentation
 

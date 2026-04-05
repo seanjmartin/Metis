@@ -399,7 +399,7 @@ Metis is a pure enhancement. Nellie's existing functionality is never broken by 
 
 ### MCP Client Side
 
-The user's MCP configuration needs both servers:
+#### Option A: Standalone metis-worker (separate process)
 
 ```json
 {
@@ -410,7 +410,7 @@ The user's MCP configuration needs both servers:
     },
     "metis-worker": {
       "command": "python",
-      "args": ["-m", "metis.worker_server"],
+      "args": ["-m", "metis.presentation.worker_server"],
       "env": {
         "METIS_DB_PATH": "~/.nellie/metis.db"
       }
@@ -420,3 +420,28 @@ The user's MCP configuration needs both servers:
 ```
 
 Both servers point at the same SQLite database. Nellie enqueues tasks; the dispatcher agent (connected to `metis-worker`) polls and delivers.
+
+#### Option B: Embedded in Nellie (single process)
+
+Nellie can host the worker tools directly — no separate `metis-worker` process needed. The dispatcher sub-agent connects to Nellie itself.
+
+```python
+# In nellie/presentation/mcp/server.py
+from metis.presentation.worker_tools import register_worker_tools
+
+mcp = FastMCP("nellie", lifespan=nellie_lifespan)
+metis_handle = register_worker_tools(mcp, db_path=settings.metis_db_path)
+```
+
+```json
+{
+  "mcpServers": {
+    "nellie": {
+      "command": "python",
+      "args": ["-m", "nellie.presentation.mcp"]
+    }
+  }
+}
+```
+
+One MCP server, one process. The dispatcher sub-agent connects to Nellie and gets both Nellie's tools and Metis's poll/deliver tools.

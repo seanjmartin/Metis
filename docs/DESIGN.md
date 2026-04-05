@@ -300,19 +300,30 @@ The MCP server author doesn't need to know about agents, models, or tool configu
 
 7. **Credential/tool access** — The dispatcher agent needs MCP server access (browse-as-me, etc.) configured in the calling environment. How does the MCP server communicate what tools a task needs without knowing the agent's environment?
 
-## Project Structure (Planned)
+## Project Structure
 
 ```
 metis/
   src/
     metis/
-      core/           # TaskQueue, Task, heartbeat, SQLite schema
-      worker_server/  # metis-worker MCP server (poll, deliver)
+      __init__.py                    # Public API: TaskQueue, Task, TaskId, TaskStatus
+      domain/                        # Entities, value objects, protocols, errors
+      application/                   # Use cases (enqueue, poll, deliver, wait, health)
+      infrastructure/                # SQLite stores, database init, TaskQueue facade
+      presentation/
+        worker_tools.py              # Embeddable poll/deliver/probe registration
+        trigger_tools.py             # Embeddable enqueue/get_result/check_health registration
+        worker_server.py             # Standalone metis-worker MCP server
+        trigger_server.py            # Standalone metis-trigger MCP server
   tests/
-    test_queue.py     # Core queue operations, concurrency
-    test_roundtrip.py # Full enqueue -> poll -> deliver -> wait_for_result
+    domain/                          # Pure logic, no I/O
+    application/                     # Use cases with real SQLite
+    infrastructure/                  # SQLite store operations
+    presentation/                    # MCP server contract tests
   examples/
-    toy_server/       # Example MCP server that dispatches a simple task
+    simulated/                       # Simulated dispatcher (canned results)
+    toy_server/                      # Example MCP server using TaskQueue
+    live/                            # Live demo with dispatcher prompts
 ```
 
 ## Relationship to Other Patterns
