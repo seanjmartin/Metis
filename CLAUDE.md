@@ -173,7 +173,8 @@ Test names describe behavior: `test_should_reject_expired_task`.
 
 ## Documentation
 
-- [DESIGN.md](docs/DESIGN.md) — Full design document, use cases, open questions
+- [DESIGN.md](docs/DESIGN.md) — Full design document, use cases, positioning
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Layer responsibilities and dependency rules
 - [PATTERNS.md](docs/PATTERNS.md) — Canonical vertical slice reference
+- [DISPATCHER.md](docs/DISPATCHER.md) — Dispatcher architecture, prompts, long-poll tuning, routing
 - [ai-ready-architecture.md](docs/ai-ready-architecture.md) — Architectural principles this project follows

@@ -328,8 +328,29 @@ metis/
 
 ## Relationship to Other Patterns
 
-**Claude Code Channels** push external events INTO a conversation. Metis pushes reasoning work OUT OF a conversation. They're complementary — a channel event could trigger an MCP tool that uses Metis for background analysis.
+### What Metis does differently
+
+MCP servers are deterministic — they receive a tool call, run code, return a result. Metis lets them behave as if they contain an agent. The MCP server drops a question into a queue and gets a structured answer back. From the caller's perspective, the tool returned an intelligent result. The agent is invisible.
+
+This inverts the usual relationship between agents and tools:
+
+| Approach | Direction | Who knows about the agent? |
+|----------|-----------|---------------------------|
+| MCP Sampling | Server → Client → LLM → Server | Client must support it |
+| Agent-as-a-Tool | Orchestrator → specialist agent | Orchestrator explicitly invokes agents |
+| Agent frameworks (MCP-Agent, LangChain) | Agent → MCP tools | Agent drives everything |
+| **Metis** | MCP server → Queue → Background agent → Queue → MCP server | **Nobody outside the MCP server** |
+
+### Comparison
+
+**MCP Sampling** (MCP spec) lets an MCP server request LLM completions directly from the client. It's synchronous, single-turn, and can't use tools or spawn sub-agents. Barely any clients implement it. Metis provides full multi-turn agentic reasoning with tool access, sub-agent delegation, and cost tracking — without requiring client-side support.
+
+**Agent-as-a-Tool** (AWS, LangChain) wraps specialized agents as callable tools for an orchestrator. The orchestrator explicitly decides which agent to invoke. In Metis, the MCP server doesn't know or care that an agent is involved — the intelligence is fully hidden behind the tool interface.
+
+**Agent frameworks** (mcp-agent, LangChain agents) build agents that *use* MCP tools. Metis inverts this — MCP tools use agents as implementation details.
+
+**Claude Code Channels** push external events INTO a conversation. Metis pushes reasoning work OUT OF a conversation. They're complementary.
 
 **Claude Agent SDK sub-agents** are the execution mechanism Metis relies on. Metis doesn't replace sub-agents — it provides the coordination layer (queue, dispatch, heartbeat) that makes MCP-server-initiated sub-agent work possible.
 
-**MCP Sampling** (proposed in MCP spec) would let an MCP server request LLM completions directly from the client. If widely adopted, it could replace some Metis use cases (simple classification, summarization). But it wouldn't handle multi-step tool-using work (browser navigation, research) — that still needs a full agent, which is what Metis provides.
+For detailed dispatcher architecture, see [DISPATCHER.md](DISPATCHER.md).
