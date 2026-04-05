@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from metis.domain.value_objects import TaskId, TaskPriority, TaskStatus, WorkerId
 
@@ -24,14 +25,20 @@ class Task:
 
     id: TaskId
     type: str
-    payload: dict
+    payload: dict[str, Any]
     status: TaskStatus = TaskStatus.PENDING
-    result: dict | None = None
+    result: dict[str, Any] | None = None
     priority: TaskPriority = field(default_factory=TaskPriority)
     ttl_seconds: int = 300
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     claimed_at: datetime | None = None
     completed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not self.type or not self.type.strip():
+            raise ValueError("Task type must be a non-empty string")
+        if self.ttl_seconds < 0:
+            raise ValueError(f"ttl_seconds must be non-negative, got: {self.ttl_seconds}")
 
     _VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = field(
         default_factory=lambda: {
@@ -55,7 +62,7 @@ class Task:
         self._transition_to(TaskStatus.CLAIMED)
         self.claimed_at = datetime.now(UTC)
 
-    def complete(self, result: dict) -> None:
+    def complete(self, result: dict[str, Any]) -> None:
         """Transition from CLAIMED to COMPLETE with a result payload."""
         self._transition_to(TaskStatus.COMPLETE)
         self.result = result

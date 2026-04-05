@@ -15,6 +15,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from metis.domain.value_objects import TaskId
 from metis.infrastructure.database import SCHEMA_SQL
@@ -101,11 +102,11 @@ class TaskQueue:
 
     async def wait_for_result(
         self, task_id: TaskId, timeout: float = 300.0
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Wait for a task's result. Async — polls until result or timeout.
 
         Returns the result dict, or None if timeout expires.
-        Raises TaskExpiredError if the task expired before completion.
+        Raises MetisError subclass if the task failed (e.g. TaskExpiredError).
         """
         from metis.infrastructure.database import init_async_database
 
@@ -127,7 +128,7 @@ class TaskQueue:
             )
 
             if result.is_error:
-                raise RuntimeError(f"Task failed: {result.error.message}")
+                raise ValueError(f"{result.error.code}: {result.error.message}")
 
             return result.value
         finally:
@@ -145,7 +146,7 @@ class TaskQueue:
 
         from datetime import timedelta
 
-        last_seen = datetime.fromisoformat(row[0])
+        last_seen = datetime.fromisoformat(row["last_seen"])
         return datetime.now(UTC) < last_seen + timedelta(seconds=timeout_seconds)
 
     def close(self) -> None:

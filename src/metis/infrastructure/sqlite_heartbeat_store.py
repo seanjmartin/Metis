@@ -69,7 +69,7 @@ class SqliteHeartbeatStore:
 
     def _to_entity(self, row: aiosqlite.Row) -> Heartbeat:
         return Heartbeat(
-            worker_id=WorkerId(value=row[0]),
-            capabilities=json.loads(row[1]),
-            last_seen=datetime.fromisoformat(row[2]),
+            worker_id=WorkerId(value=row["worker_id"]),
+            capabilities=json.loads(row["capabilities"]),
+            last_seen=datetime.fromisoformat(row["last_seen"]),
         )

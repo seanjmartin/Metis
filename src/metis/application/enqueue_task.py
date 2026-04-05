@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from metis.domain.entities import Task
 from metis.domain.errors import Ok, Result
@@ -19,7 +20,7 @@ from metis.domain.value_objects import TaskId, TaskPriority
 @dataclass(frozen=True)
 class EnqueueTaskInput:
     type: str
-    payload: dict
+    payload: dict[str, Any]
     priority: int = 0
     ttl_seconds: int = 300
 

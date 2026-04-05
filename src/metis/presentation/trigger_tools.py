@@ -70,13 +70,14 @@ def register_trigger_tools(
         type: str,
         payload: dict[str, Any],
         priority: int = 0,
-        ttl_seconds: int = 120,
+        ttl_seconds: int = 300,
     ) -> dict[str, str]:
         """Enqueue a reasoning task for the background dispatcher.
 
         Returns {"task_id": "<uuid>"} on success.
         """
-        assert state["queue"] is not None, "Trigger tools not initialized"
+        if state["queue"] is None:
+            return {"status": "error", "message": "Trigger tools not initialized"}
 
         task_id = state["queue"].enqueue(
             type=type,
@@ -95,7 +96,8 @@ def register_trigger_tools(
         Returns {"status": "timeout"} if the timeout expires.
         Returns {"status": "error", "message": "..."} on failure.
         """
-        assert state["queue"] is not None, "Trigger tools not initialized"
+        if state["queue"] is None:
+            return {"status": "error", "message": "Trigger tools not initialized"}
 
         from metis.domain.value_objects import TaskId
 
@@ -117,7 +119,8 @@ def register_trigger_tools(
 
         Returns {"worker_alive": true/false}.
         """
-        assert state["queue"] is not None, "Trigger tools not initialized"
+        if state["queue"] is None:
+            return {"status": "error", "message": "Trigger tools not initialized"}
 
         return {
             "worker_alive": state["queue"].is_worker_alive(

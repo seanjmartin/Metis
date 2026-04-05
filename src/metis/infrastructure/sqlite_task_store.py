@@ -122,14 +122,16 @@ class SqliteTaskStore:
 
     def _to_entity(self, row: aiosqlite.Row) -> Task:
         return Task(
-            id=TaskId(value=row[0]),
-            type=row[1],
-            payload=json.loads(row[2]),
-            status=TaskStatus(row[3]),
-            result=json.loads(row[4]) if row[4] is not None else None,
-            priority=TaskPriority(value=row[5]),
-            ttl_seconds=row[6],
-            created_at=datetime.fromisoformat(row[7]),
-            claimed_at=datetime.fromisoformat(row[8]) if row[8] else None,
-            completed_at=datetime.fromisoformat(row[9]) if row[9] else None,
+            id=TaskId(value=row["id"]),
+            type=row["type"],
+            payload=json.loads(row["payload"]),
+            status=TaskStatus(row["status"]),
+            result=json.loads(row["result"]) if row["result"] is not None else None,
+            priority=TaskPriority(value=row["priority"]),
+            ttl_seconds=row["ttl_seconds"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            claimed_at=datetime.fromisoformat(row["claimed_at"]) if row["claimed_at"] else None,
+            completed_at=(
+                datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
+            ),
         )

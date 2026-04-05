@@ -103,7 +103,8 @@ def register_worker_tools(
         Returns {"s": "e"} if no task is available (minimal tokens).
         Returns {"s": "t", "id": ..., "type": ..., "payload": ...} if a task is claimed.
         """
-        assert state["poll_uc"] is not None, "Worker tools not initialized"
+        if state["poll_uc"] is None:
+            return {"s": "err", "message": "Worker tools not initialized"}
 
         effective_timeout = timeout if timeout >= 0 else poll_timeout
 
@@ -136,7 +137,8 @@ def register_worker_tools(
         Returns {"s": "ok"} on success.
         Returns {"s": "err", "message": ...} on failure.
         """
-        assert state["deliver_uc"] is not None, "Worker tools not initialized"
+        if state["deliver_uc"] is None:
+            return {"s": "err", "message": "Worker tools not initialized"}
 
         deliver_result = await state["deliver_uc"].execute(
             DeliverResultInput(task_id=task_id, result=result)

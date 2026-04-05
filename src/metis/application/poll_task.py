@@ -54,7 +54,7 @@ class PollTaskUseCase:
     async def execute(self, input: PollTaskInput) -> Result[Task | None]:
         worker_id = WorkerId(value=input.worker_id)
 
-        await self._update_heartbeat(worker_id, input.capabilities)
+        await self._upsert_heartbeat(worker_id, input.capabilities)
         await self._task_store.expire_stale(datetime.now(UTC))
 
         task = await self._task_store.claim_next(input.capabilities, worker_id)
@@ -71,7 +71,7 @@ class PollTaskUseCase:
             since_heartbeat += _LONG_POLL_INTERVAL_SECONDS
 
             if since_heartbeat >= _HEARTBEAT_INTERVAL_SECONDS:
-                await self._update_heartbeat(worker_id, input.capabilities)
+                await self._upsert_heartbeat(worker_id, input.capabilities)
                 since_heartbeat = 0.0
 
             task = await self._task_store.claim_next(input.capabilities, worker_id)
@@ -79,10 +79,10 @@ class PollTaskUseCase:
                 return Ok(task)
 
         # Final heartbeat before returning empty
-        await self._update_heartbeat(worker_id, input.capabilities)
+        await self._upsert_heartbeat(worker_id, input.capabilities)
         return Ok(None)
 
-    async def _update_heartbeat(
+    async def _upsert_heartbeat(
         self, worker_id: WorkerId, capabilities: list[str]
     ) -> None:
         await self._heartbeat_store.upsert(

@@ -179,3 +179,60 @@ class TestDeliverResult:
         )
 
         assert result.is_error
+        assert result.error.code == "TASK_NOT_FOUND"
+
+    async def test_should_fail_for_pending_task(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        """Delivering to a task that hasn't been claimed should fail."""
+        task_store = SqliteTaskStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        deliver = DeliverResultUseCase(task_store=task_store)
+
+        enqueue_result = await enqueue.execute(
+            EnqueueTaskInput(type="test", payload={})
+        )
+
+        result = await deliver.execute(
+            DeliverResultInput(
+                task_id=enqueue_result.value.value,
+                result={"x": 1},
+            )
+        )
+
+        assert result.is_error
+        assert result.error.code == "INVALID_TRANSITION"
+
+    async def test_should_fail_for_already_complete_task(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        """Delivering to an already-completed task should fail."""
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+        deliver = DeliverResultUseCase(task_store=task_store)
+
+        enqueue_result = await enqueue.execute(
+            EnqueueTaskInput(type="test", payload={})
+        )
+        await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
+
+        # First deliver succeeds
+        await deliver.execute(
+            DeliverResultInput(
+                task_id=enqueue_result.value.value,
+                result={"first": True},
+            )
+        )
+
+        # Second deliver should fail
+        result = await deliver.execute(
+            DeliverResultInput(
+                task_id=enqueue_result.value.value,
+                result={"second": True},
+            )
+        )
+
+        assert result.is_error
+        assert result.error.code == "INVALID_TRANSITION"

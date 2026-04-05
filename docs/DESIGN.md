@@ -41,15 +41,15 @@ Main conversation (clean, focused on user)
 The task queue and coordination layer. Any MCP server imports this.
 
 ```python
-from metis import TaskQueue, Task
+from metis import TaskQueue
 
 queue = TaskQueue(db_path="~/.my-server/metis.db")
 
 # Fire-and-forget (background work)
-queue.enqueue(Task(type="refresh", payload={...}))
+queue.enqueue(type="refresh", payload={...})
 
 # Block-and-wait (need the answer now)
-task_id = queue.enqueue(Task(type="validate", payload={...}))
+task_id = queue.enqueue(type="validate", payload={...})
 result = await queue.wait_for_result(task_id, timeout=60)
 ```
 
@@ -254,7 +254,7 @@ Timeout behavior: if the worker doesn't deliver in time, the MCP server returns 
 For any MCP server to use Metis:
 
 ```python
-from metis import TaskQueue, Task
+from metis import TaskQueue
 
 class MyMCPServer:
     def __init__(self):
@@ -265,14 +265,14 @@ class MyMCPServer:
         
         # Need reasoning
         if self.queue.is_worker_alive():
-            task_id = self.queue.enqueue(Task(
+            task_id = self.queue.enqueue(
                 type="validate",
                 payload={"content": input},
-                ttl=120
-            ))
+                ttl_seconds=120,
+            )
             result = await self.queue.wait_for_result(task_id, timeout=90)
             if result:
-                return {"answer": result.output, "validated": True}
+                return {"answer": result, "validated": True}
         
         # No worker available — degrade gracefully
         return {
@@ -322,7 +322,7 @@ metis/
     presentation/                    # MCP server contract tests
   examples/
     simulated/                       # Simulated dispatcher (canned results)
-    toy_server/                      # Example MCP server using TaskQueue
+    integration/                     # Example MCP server with embedded Metis
     live/                            # Live demo with dispatcher prompts
 ```
 

@@ -40,6 +40,7 @@ async def init_async_database(db_path: str) -> aiosqlite.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = await aiosqlite.connect(str(path))
+    conn.row_factory = aiosqlite.Row
     await conn.execute("PRAGMA journal_mode=WAL")
     await conn.execute("PRAGMA busy_timeout=5000")
     await conn.executescript(SCHEMA_SQL)

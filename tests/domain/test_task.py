@@ -123,6 +123,43 @@ class TestTaskExpiry:
         assert task.is_expired() is True
 
 
+class TestTaskValidation:
+    def test_should_reject_empty_type(self) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            _make_task()  # uses type="test" by default — override manually
+            Task(
+                id=TaskId.generate(),
+                type="",
+                payload={},
+            )
+
+    def test_should_reject_whitespace_type(self) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            Task(
+                id=TaskId.generate(),
+                type="   ",
+                payload={},
+            )
+
+    def test_should_reject_negative_ttl(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            Task(
+                id=TaskId.generate(),
+                type="test",
+                payload={},
+                ttl_seconds=-1,
+            )
+
+    def test_should_accept_zero_ttl(self) -> None:
+        task = Task(
+            id=TaskId.generate(),
+            type="test",
+            payload={},
+            ttl_seconds=0,
+        )
+        assert task.ttl_seconds == 0
+
+
 class TestHeartbeat:
     def test_should_be_alive_when_recent(self) -> None:
         hb = Heartbeat(

@@ -8,8 +8,9 @@ NOT responsible for:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-from metis.domain.errors import Err, Ok, Result, TaskNotFoundError
+from metis.domain.errors import Err, InvalidTransitionError, Ok, Result, TaskNotFoundError
 from metis.domain.protocols import TaskStore
 from metis.domain.value_objects import TaskId
 
@@ -17,7 +18,7 @@ from metis.domain.value_objects import TaskId
 @dataclass(frozen=True)
 class DeliverResultInput:
     task_id: str
-    result: dict
+    result: dict[str, Any]
 
 
 class DeliverResultUseCase:
@@ -41,7 +42,7 @@ class DeliverResultUseCase:
         try:
             task.complete(input.result)
         except ValueError as e:
-            return Err(TaskNotFoundError(message=str(e)))
+            return Err(InvalidTransitionError(message=str(e)))
 
         await self._task_store.update(task)
         return Ok(None)

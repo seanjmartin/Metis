@@ -4,7 +4,7 @@ Demonstrates cross-process coordination without requiring an actual LLM agent.
 Connects directly to the SQLite database (same as metis-worker would use).
 
 Usage:
-    python examples/simulate_dispatcher.py --db ~/.myserver/metis.db
+    python examples/simulated/dispatcher.py --db ~/.metis/metis.db
 
 For each task claimed, generates a canned result based on task type.
 """
