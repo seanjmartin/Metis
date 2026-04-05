@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The `TaskQueue` public API needs two operations: enqueue a task and wait for its result. Integrating MCP servers (like Nellie) may call these from either sync or async contexts.
+The `TaskQueue` public API needs two operations: enqueue a task and wait for its result. Integrating MCP servers may call these from either sync or async contexts.
 
 ## Decision
 

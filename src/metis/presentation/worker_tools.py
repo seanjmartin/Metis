@@ -1,7 +1,7 @@
 """Embeddable metis-worker tools for any FastMCP server.
 
 Register poll/deliver/probe tools on an existing FastMCP instance,
-so an MCP server like Nellie can host dispatcher tools directly
+so any MCP server can host dispatcher tools directly
 without needing a separate metis-worker process.
 
 Usage:

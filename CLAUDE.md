@@ -169,5 +169,4 @@ Test names describe behavior: `test_should_reject_expired_task`.
 - [DESIGN.md](docs/DESIGN.md) — Full design document, use cases, open questions
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Layer responsibilities and dependency rules
 - [PATTERNS.md](docs/PATTERNS.md) — Canonical vertical slice reference
-- [nellie-integration.md](docs/nellie-integration.md) — How Nellie (primary integration target) would use Metis
 - [ai-ready-architecture.md](docs/ai-ready-architecture.md) — Architectural principles this project follows

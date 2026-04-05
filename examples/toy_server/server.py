@@ -1,7 +1,7 @@
 """Toy MCP server demonstrating Metis integration.
 
 Exposes one tool: analyze(text) that dispatches classification work
-to a Metis worker and returns the result. Shows the Nellie-style
+to a Metis worker and returns the result. Shows the recommended
 integration pattern with graceful degradation.
 
 Usage:
