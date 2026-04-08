@@ -44,6 +44,8 @@ python examples/simulated/dispatcher.py --db ~/.metis/metis.db
 # Set METIS_POLL_TIMEOUT to (last successful - 5 seconds)
 ```
 
+See [docs/DISPATCHER.md](docs/DISPATCHER.md) for Claude Code and VS Code Copilot MCP configuration.
+
 ## Architecture
 
 Four components:

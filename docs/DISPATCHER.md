@@ -147,6 +147,58 @@ deliver(task_id=<id>, result={...}, input_tokens=1500, output_tokens=500)
 
 Token counts are stored per-task in SQLite. The `get_result()` trigger tool returns them alongside the result when available.
 
+## Client setup
+
+### Claude Code
+
+Add to `.mcp.json` in the project root:
+
+```json
+{
+  "mcpServers": {
+    "metis-worker": {
+      "command": "python",
+      "args": ["-m", "metis.presentation.worker_server"],
+      "env": { "METIS_DB_PATH": "~/.metis/metis.db" }
+    },
+    "metis-trigger": {
+      "command": "python",
+      "args": ["-m", "metis.presentation.trigger_server"],
+      "env": { "METIS_DB_PATH": "~/.metis/metis.db" }
+    }
+  }
+}
+```
+
+Spawn the dispatcher as a background sub-agent using the Agent tool. The sub-agent inherits MCP tool access from the parent session.
+
+### VS Code Copilot
+
+Add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "metis-worker": {
+      "command": "python",
+      "args": ["-m", "metis.presentation.worker_server"],
+      "env": { "METIS_DB_PATH": "~/.metis/metis.db" }
+    },
+    "metis-trigger": {
+      "command": "python",
+      "args": ["-m", "metis.presentation.trigger_server"],
+      "env": { "METIS_DB_PATH": "~/.metis/metis.db" }
+    }
+  }
+}
+```
+
+Define a custom agent at `.github/agents/metis-dispatcher.md` with `tools: [metis-worker]` in the frontmatter. This gives the sub-agent explicit MCP tool access. Invoke with `@metis-dispatcher` in Copilot Agent mode.
+
+**Important:** Bare `#runSubagent` does not inherit MCP tools — a named custom agent with explicit tool configuration is required.
+
+Tested with GPT-4.1 — full round-trip works (enqueue via trigger, dispatch via custom agent, retrieve results).
+
 ## Self-healing
 
 If the dispatcher dies (process crash, max turns reached, idle timeout), the MCP server detects it via `is_worker_alive()` — the heartbeat goes stale. The server returns a degraded response with `metis_dispatcher_required: true`, signaling the calling LLM to spawn a new dispatcher.
