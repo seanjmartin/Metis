@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from metis.domain.value_objects import TaskId
-from metis.infrastructure.database import SCHEMA_SQL
+from metis.infrastructure.database import SCHEMA_SQL, _run_migrations
 
 _POLL_INTERVAL_SECONDS = 0.1
 
@@ -52,6 +52,7 @@ class TaskQueue:
             self._sync_conn.execute("PRAGMA busy_timeout=5000")
             self._sync_conn.executescript(SCHEMA_SQL)
             self._sync_conn.commit()
+            _run_migrations(self._sync_conn)
         return self._sync_conn
 
     def enqueue(
@@ -62,6 +63,7 @@ class TaskQueue:
         priority: int = 0,
         ttl_seconds: int = 300,
         capabilities_required: list[str] | None = None,
+        session_id: str | None = None,
     ) -> TaskId:
         """Create and enqueue a new task. Synchronous — safe from any context.
 
@@ -74,8 +76,9 @@ class TaskQueue:
         conn.execute(
             """
             INSERT INTO tasks (id, type, payload, status, priority,
-                               ttl_seconds, created_at, capabilities_required)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+                               ttl_seconds, created_at, capabilities_required,
+                               session_id)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
             """,
             (
                 task_id.value,
@@ -85,6 +88,7 @@ class TaskQueue:
                 ttl_seconds,
                 now.isoformat(),
                 json.dumps(capabilities_required or []),
+                session_id,
             ),
         )
         conn.commit()
@@ -124,9 +128,7 @@ class TaskQueue:
             use_case = WaitForResultUseCase(task_store=store)
 
             result = await use_case.execute(
-                WaitForResultInput(
-                    task_id=task_id.value, timeout_seconds=timeout
-                )
+                WaitForResultInput(task_id=task_id.value, timeout_seconds=timeout)
             )
 
             if result.is_error:

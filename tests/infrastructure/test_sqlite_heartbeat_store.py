@@ -12,9 +12,7 @@ from metis.infrastructure.sqlite_heartbeat_store import SqliteHeartbeatStore
 
 
 class TestUpsertAndGet:
-    async def test_should_round_trip_heartbeat(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_round_trip_heartbeat(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteHeartbeatStore(db_conn)
         hb = Heartbeat(
             worker_id=WorkerId(value="w1"),
@@ -29,9 +27,7 @@ class TestUpsertAndGet:
         assert retrieved.worker_id == hb.worker_id
         assert retrieved.capabilities == ["browse-as-me", "file-access"]
 
-    async def test_should_update_existing_heartbeat(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_update_existing_heartbeat(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteHeartbeatStore(db_conn)
         worker = WorkerId(value="w1")
         old_time = datetime.now(UTC) - timedelta(seconds=30)
@@ -54,9 +50,7 @@ class TestUpsertAndGet:
 
 
 class TestGetLatest:
-    async def test_should_return_most_recent_heartbeat(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_return_most_recent_heartbeat(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteHeartbeatStore(db_conn)
         old = Heartbeat(
             worker_id=WorkerId(value="w1"),
@@ -85,9 +79,7 @@ class TestGetLatest:
 
 
 class TestRemove:
-    async def test_should_delete_heartbeat(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_delete_heartbeat(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteHeartbeatStore(db_conn)
         worker = WorkerId(value="w1")
         await store.upsert(

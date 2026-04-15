@@ -18,16 +18,12 @@ from metis.infrastructure.sqlite_task_store import SqliteTaskStore
 
 
 class TestWaitForResult:
-    async def test_should_return_none_on_timeout(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_return_none_on_timeout(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
         wait = WaitForResultUseCase(task_store=task_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
 
         result = await wait.execute(
             WaitForResultInput(
@@ -39,9 +35,7 @@ class TestWaitForResult:
         assert result.is_ok
         assert result.value is None
 
-    async def test_should_return_result_when_delivered(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_return_result_when_delivered(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
@@ -49,31 +43,23 @@ class TestWaitForResult:
         deliver = DeliverResultUseCase(task_store=task_store)
         wait = WaitForResultUseCase(task_store=task_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
         task_id_str = enqueue_result.value.value
 
         async def simulate_worker() -> None:
             await asyncio.sleep(0.2)
             await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
-            await deliver.execute(
-                DeliverResultInput(task_id=task_id_str, result={"answer": 42})
-            )
+            await deliver.execute(DeliverResultInput(task_id=task_id_str, result={"answer": 42}))
 
         worker_task = asyncio.create_task(simulate_worker())
 
-        result = await wait.execute(
-            WaitForResultInput(task_id=task_id_str, timeout_seconds=5.0)
-        )
+        result = await wait.execute(WaitForResultInput(task_id=task_id_str, timeout_seconds=5.0))
 
         await worker_task
         assert result.is_ok
         assert result.value == {"answer": 42}
 
-    async def test_should_detect_expired_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_detect_expired_task(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
 
         task = Task(
@@ -90,16 +76,12 @@ class TestWaitForResult:
         await task_store.update(task)
 
         wait = WaitForResultUseCase(task_store=task_store)
-        result = await wait.execute(
-            WaitForResultInput(task_id=task.id.value, timeout_seconds=1.0)
-        )
+        result = await wait.execute(WaitForResultInput(task_id=task.id.value, timeout_seconds=1.0))
 
         assert result.is_error
         assert result.error.code == "TASK_EXPIRED"
 
-    async def test_should_fail_for_missing_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_fail_for_missing_task(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         wait = WaitForResultUseCase(task_store=task_store)
 

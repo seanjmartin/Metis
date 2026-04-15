@@ -59,9 +59,7 @@ class TestCheckHealth:
         assert result.is_ok
         assert result.value is False
 
-    async def test_should_respect_custom_timeout(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_respect_custom_timeout(self, db_conn: aiosqlite.Connection) -> None:
         hb_store = SqliteHeartbeatStore(db_conn)
         use_case = CheckHealthUseCase(heartbeat_store=hb_store)
 

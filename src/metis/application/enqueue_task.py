@@ -24,6 +24,7 @@ class EnqueueTaskInput:
     priority: int = 0
     ttl_seconds: int = 300
     capabilities_required: list[str] = field(default_factory=list)
+    session_id: str | None = None
 
 
 class EnqueueTaskUseCase:
@@ -45,6 +46,7 @@ class EnqueueTaskUseCase:
             priority=TaskPriority(value=input.priority),
             ttl_seconds=input.ttl_seconds,
             capabilities_required=input.capabilities_required,
+            session_id=input.session_id,
             created_at=datetime.now(UTC),
         )
         await self._task_store.insert(task)

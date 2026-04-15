@@ -27,7 +27,10 @@ class TaskStore(Protocol):
     async def get(self, task_id: TaskId) -> Task | None: ...
 
     async def claim_next(
-        self, capabilities: list[str], worker_id: WorkerId
+        self,
+        capabilities: list[str],
+        worker_id: WorkerId,
+        session_id: str | None = None,
     ) -> Task | None: ...
 
     async def update(self, task: Task) -> None: ...

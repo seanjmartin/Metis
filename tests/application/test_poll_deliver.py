@@ -15,21 +15,15 @@ from metis.infrastructure.sqlite_task_store import SqliteTaskStore
 
 
 class TestPollTask:
-    async def test_should_claim_pending_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_claim_pending_task(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={"x": 1})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={"x": 1}))
 
-        poll_result = await poll.execute(
-            PollTaskInput(worker_id="w1", capabilities=[])
-        )
+        poll_result = await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
 
         assert poll_result.is_ok
         task = poll_result.value
@@ -37,23 +31,17 @@ class TestPollTask:
         assert task.id == enqueue_result.value
         assert task.status == TaskStatus.CLAIMED
 
-    async def test_should_return_none_when_no_tasks(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_return_none_when_no_tasks(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
 
-        result = await poll.execute(
-            PollTaskInput(worker_id="w1", capabilities=[])
-        )
+        result = await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
 
         assert result.is_ok
         assert result.value is None
 
-    async def test_should_update_heartbeat(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_update_heartbeat(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
@@ -84,9 +72,7 @@ class TestLongPoll:
         assert result.value is not None
         assert result.value.type == "test"
 
-    async def test_should_return_none_after_timeout(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_return_none_after_timeout(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
@@ -138,18 +124,14 @@ class TestLongPoll:
 
 
 class TestDeliverResult:
-    async def test_should_complete_claimed_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_complete_claimed_task(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
         deliver = DeliverResultUseCase(task_store=task_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
         await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
 
         result = await deliver.execute(
@@ -165,9 +147,7 @@ class TestDeliverResult:
         assert task.status == TaskStatus.COMPLETE
         assert task.result == {"answer": 42}
 
-    async def test_should_fail_for_missing_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_fail_for_missing_task(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         deliver = DeliverResultUseCase(task_store=task_store)
 
@@ -181,17 +161,13 @@ class TestDeliverResult:
         assert result.is_error
         assert result.error.code == "TASK_NOT_FOUND"
 
-    async def test_should_fail_for_pending_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_fail_for_pending_task(self, db_conn: aiosqlite.Connection) -> None:
         """Delivering to a task that hasn't been claimed should fail."""
         task_store = SqliteTaskStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
         deliver = DeliverResultUseCase(task_store=task_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
 
         result = await deliver.execute(
             DeliverResultInput(
@@ -213,9 +189,7 @@ class TestDeliverResult:
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
         deliver = DeliverResultUseCase(task_store=task_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
         await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
 
         # First deliver succeeds
@@ -237,18 +211,14 @@ class TestDeliverResult:
         assert result.is_error
         assert result.error.code == "INVALID_TRANSITION"
 
-    async def test_should_store_token_counts(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_store_token_counts(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
         poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
         deliver = DeliverResultUseCase(task_store=task_store)
 
-        enqueue_result = await enqueue.execute(
-            EnqueueTaskInput(type="test", payload={})
-        )
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
         await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
 
         result = await deliver.execute(
@@ -267,10 +237,52 @@ class TestDeliverResult:
         assert task.output_tokens == 500
 
 
-class TestCapabilityFilteredPolling:
-    async def test_should_only_claim_matching_tasks(
+class TestSessionFilteredPolling:
+    async def test_should_only_claim_task_with_matching_session_id(
         self, db_conn: aiosqlite.Connection
     ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        await enqueue.execute(
+            EnqueueTaskInput(type="test", payload={"user": "alice"}, session_id="alice")
+        )
+
+        # Poll with wrong session — should get nothing
+        result = await poll.execute(
+            PollTaskInput(worker_id="w1", capabilities=[], session_id="bob")
+        )
+        assert result.is_ok
+        assert result.value is None
+
+        # Poll with correct session — should get the task
+        result = await poll.execute(
+            PollTaskInput(worker_id="w2", capabilities=[], session_id="alice")
+        )
+        assert result.is_ok
+        assert result.value is not None
+        assert result.value.session_id == "alice"
+
+    async def test_should_claim_any_session_when_session_id_is_none(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+
+        await enqueue.execute(EnqueueTaskInput(type="test", payload={}, session_id="alice"))
+
+        # Poll without session_id — should claim any task (backward compat)
+        result = await poll.execute(PollTaskInput(worker_id="w1", capabilities=[], session_id=None))
+        assert result.is_ok
+        assert result.value is not None
+
+
+class TestCapabilityFilteredPolling:
+    async def test_should_only_claim_matching_tasks(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
         enqueue = EnqueueTaskUseCase(task_store=task_store)
@@ -286,16 +298,12 @@ class TestCapabilityFilteredPolling:
         )
 
         # Poll without the capability — should get nothing
-        result = await poll.execute(
-            PollTaskInput(worker_id="w1", capabilities=["file-access"])
-        )
+        result = await poll.execute(PollTaskInput(worker_id="w1", capabilities=["file-access"]))
         assert result.is_ok
         assert result.value is None
 
         # Poll with the capability — should get the task
-        result = await poll.execute(
-            PollTaskInput(worker_id="w2", capabilities=["browse-as-me"])
-        )
+        result = await poll.execute(PollTaskInput(worker_id="w2", capabilities=["browse-as-me"]))
         assert result.is_ok
         assert result.value is not None
         assert result.value.type == "browser"

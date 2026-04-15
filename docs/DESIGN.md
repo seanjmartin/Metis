@@ -88,7 +88,8 @@ CREATE TABLE tasks (
     ttl_seconds INTEGER DEFAULT 300,
     created_at  TEXT NOT NULL,
     claimed_at  TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    session_id  TEXT                    -- optional: scopes tasks to a user/session
 );
 
 CREATE TABLE heartbeats (
@@ -298,7 +299,9 @@ The MCP server author doesn't need to know about agents, models, or tool configu
 
 6. ~~**Cost tracking**~~ — **Implemented.** `deliver()` accepts optional `input_tokens` and `output_tokens` parameters. Stored per-task in SQLite. The dispatcher reports usage alongside results; callers can query token counts from completed tasks.
 
-7. **Credential/tool access** — Deferred to the dispatcher prompt. The dispatcher knows its own MCP server access; the hybrid routing pattern lets it spawn specialized sub-agents with the right tools per task type.
+7. ~~**Multi-user session isolation**~~ — **Implemented.** Tasks carry an optional `session_id` that scopes them to a user or session. `claim_next` filters by session_id when provided; `None` means global pool (backward compatible). For HTTP servers, `register_*_tools()` accepts a callable that resolves the session per-request. See [examples/http_multiuser/](../examples/http_multiuser/).
+
+8. **Credential/tool access** — Deferred to the dispatcher prompt. The dispatcher knows its own MCP server access; the hybrid routing pattern lets it spawn specialized sub-agents with the right tools per task type.
 
 ## Project Structure
 
@@ -324,6 +327,7 @@ metis/
     simulated/                       # Simulated dispatcher (canned results)
     integration/                     # Example MCP server with embedded Metis
     live/                            # Live demo with dispatcher prompts
+    http_multiuser/                  # HTTP multi-user session isolation example
 ```
 
 ## Relationship to Other Patterns

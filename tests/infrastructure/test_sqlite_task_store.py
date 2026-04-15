@@ -43,18 +43,14 @@ class TestInsertAndGet:
         assert retrieved.status == TaskStatus.PENDING
         assert retrieved.priority == task.priority
 
-    async def test_should_return_none_for_missing_task(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_return_none_for_missing_task(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         result = await store.get(TaskId.generate())
         assert result is None
 
 
 class TestClaimNext:
-    async def test_should_claim_highest_priority_first(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_claim_highest_priority_first(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         low = _make_task(priority=0)
         high = _make_task(priority=10)
@@ -88,9 +84,7 @@ class TestClaimNext:
         result = await store.claim_next([], WorkerId(value="w1"))
         assert result is None
 
-    async def test_should_not_double_claim(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_not_double_claim(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task()
         await store.insert(task)
@@ -103,9 +97,7 @@ class TestClaimNext:
 
 
 class TestUpdate:
-    async def test_should_persist_status_and_result(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_persist_status_and_result(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task()
         await store.insert(task)
@@ -122,9 +114,7 @@ class TestUpdate:
 
 
 class TestMarkConsumed:
-    async def test_should_set_status_to_consumed(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_set_status_to_consumed(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task()
         await store.insert(task)
@@ -137,9 +127,7 @@ class TestMarkConsumed:
 
 
 class TestExpireStale:
-    async def test_should_expire_overdue_pending_tasks(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_expire_overdue_pending_tasks(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         stale = _make_task(
             ttl_seconds=10,
@@ -158,9 +146,7 @@ class TestExpireStale:
         assert stale_task is not None and stale_task.status == TaskStatus.EXPIRED
         assert fresh_task is not None and fresh_task.status == TaskStatus.PENDING
 
-    async def test_should_expire_overdue_claimed_tasks(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_expire_overdue_claimed_tasks(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task(
             ttl_seconds=10,
@@ -172,9 +158,7 @@ class TestExpireStale:
         count = await store.expire_stale(datetime.now(UTC))
         assert count == 1
 
-    async def test_should_not_expire_completed_tasks(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_not_expire_completed_tasks(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task(
             ttl_seconds=10,
@@ -200,9 +184,7 @@ class TestCapabilityFiltering:
         task.capabilities_required = ["browse-as-me"]
         await store.insert(task)
 
-        claimed = await store.claim_next(
-            ["browse-as-me", "file-access"], WorkerId(value="w1")
-        )
+        claimed = await store.claim_next(["browse-as-me", "file-access"], WorkerId(value="w1"))
         assert claimed is not None
         assert claimed.id == task.id
 
@@ -214,9 +196,7 @@ class TestCapabilityFiltering:
         task.capabilities_required = ["browse-as-me"]
         await store.insert(task)
 
-        claimed = await store.claim_next(
-            ["file-access"], WorkerId(value="w1")
-        )
+        claimed = await store.claim_next(["file-access"], WorkerId(value="w1"))
         assert claimed is None
 
     async def test_should_claim_task_with_no_requirements(
@@ -245,31 +225,84 @@ class TestCapabilityFiltering:
         assert claimed is not None
         assert claimed.id == unrestricted.id
 
-    async def test_should_require_all_capabilities(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_require_all_capabilities(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task()
         task.capabilities_required = ["browse-as-me", "file-access"]
         await store.insert(task)
 
         # Only one of two required — should not claim
-        claimed = await store.claim_next(
-            ["browse-as-me"], WorkerId(value="w1")
-        )
+        claimed = await store.claim_next(["browse-as-me"], WorkerId(value="w1"))
         assert claimed is None
 
         # Both required — should claim
-        claimed = await store.claim_next(
-            ["browse-as-me", "file-access"], WorkerId(value="w1")
-        )
+        claimed = await store.claim_next(["browse-as-me", "file-access"], WorkerId(value="w1"))
         assert claimed is not None
 
 
-class TestTokenTracking:
-    async def test_should_round_trip_token_counts(
+class TestSessionFiltering:
+    async def test_should_claim_task_with_matching_session_id(
         self, db_conn: aiosqlite.Connection
     ) -> None:
+        store = SqliteTaskStore(db_conn)
+        alice_task = _make_task()
+        alice_task.session_id = "alice"
+        bob_task = _make_task()
+        bob_task.session_id = "bob"
+
+        await store.insert(alice_task)
+        await store.insert(bob_task)
+
+        claimed = await store.claim_next([], WorkerId(value="w1"), session_id="alice")
+        assert claimed is not None
+        assert claimed.id == alice_task.id
+        assert claimed.session_id == "alice"
+
+    async def test_should_not_claim_task_with_different_session_id(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        task.session_id = "alice"
+        await store.insert(task)
+
+        claimed = await store.claim_next([], WorkerId(value="w1"), session_id="bob")
+        assert claimed is None
+
+    async def test_should_claim_any_when_session_id_is_none(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        task.session_id = "alice"
+        await store.insert(task)
+
+        claimed = await store.claim_next([], WorkerId(value="w1"), session_id=None)
+        assert claimed is not None
+        assert claimed.id == task.id
+
+    async def test_should_round_trip_session_id(self, db_conn: aiosqlite.Connection) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        task.session_id = "user-a::session-3"
+        await store.insert(task)
+
+        retrieved = await store.get(task.id)
+        assert retrieved is not None
+        assert retrieved.session_id == "user-a::session-3"
+
+    async def test_should_default_session_id_to_none(self, db_conn: aiosqlite.Connection) -> None:
+        store = SqliteTaskStore(db_conn)
+        task = _make_task()
+        await store.insert(task)
+
+        retrieved = await store.get(task.id)
+        assert retrieved is not None
+        assert retrieved.session_id is None
+
+
+class TestTokenTracking:
+    async def test_should_round_trip_token_counts(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task()
         await store.insert(task)
@@ -286,9 +319,7 @@ class TestTokenTracking:
         assert retrieved.input_tokens == 1500
         assert retrieved.output_tokens == 500
 
-    async def test_should_default_tokens_to_none(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_should_default_tokens_to_none(self, db_conn: aiosqlite.Connection) -> None:
         store = SqliteTaskStore(db_conn)
         task = _make_task()
         await store.insert(task)

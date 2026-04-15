@@ -51,6 +51,31 @@ class TestPollResponseFormat:
         assert "id" in result
         assert result["type"] == "classify"
         assert result["payload"] == {"text": "hello"}
+        assert "sid" not in result  # No session_id set
+
+    async def test_should_include_sid_when_session_id_set(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "test.db")
+        mcp = FastMCP("test")
+        handle = register_worker_tools(mcp, db_path=db_path)
+
+        async with handle.lifespan(mcp):
+            conn = await init_async_database(db_path)
+            store = SqliteTaskStore(conn)
+            task = Task(
+                id=TaskId.generate(),
+                type="classify",
+                payload={"text": "hello"},
+                priority=TaskPriority(value=0),
+                session_id="alice",
+                created_at=datetime.now(UTC),
+            )
+            await store.insert(task)
+            await conn.close()
+
+            result = await handle.poll(worker_id="w1")
+
+        assert result["s"] == "t"
+        assert result["sid"] == "alice"
 
 
 class TestDeliverResponseFormat:

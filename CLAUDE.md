@@ -95,6 +95,7 @@ task_id = queue.enqueue(
     payload={...},
     ttl_seconds=60,
     capabilities_required=["browse-as-me"],  # only workers with this capability can claim
+    session_id="user-alice",  # scope to a session (optional, for multi-user)
 )
 result = await queue.wait_for_result(task_id, timeout=30)
 is_alive = queue.is_worker_alive()
@@ -117,6 +118,19 @@ worker_handle = register_worker_tools(mcp, db_path="~/.myserver/metis.db")
 # Or add trigger tools for conversational testing
 trigger_handle = register_trigger_tools(mcp, db_path="~/.myserver/metis.db")
 ```
+
+For HTTP multi-user servers, pass a callable that resolves the current session:
+
+```python
+worker_handle = register_worker_tools(
+    mcp, db_path="~/.myserver/metis.db", session_id=get_current_session_id
+)
+trigger_handle = register_trigger_tools(
+    mcp, db_path="~/.myserver/metis.db", session_id=get_current_session_id
+)
+```
+
+See [examples/http_multiuser/](examples/http_multiuser/) for a complete multi-user example.
 
 This eliminates the need for separate `metis-worker` / `metis-trigger` processes.
 

@@ -41,8 +41,8 @@ Implements domain protocols. Contains `SqliteTaskStore`, `SqliteHeartbeatStore`,
 Entry points — FastMCP servers and embeddable tool registration. Thin: validate input, call use case, format output.
 
 Contains:
-- `worker_tools.py` — embeddable `register_worker_tools(mcp, db_path)` for poll/deliver/probe
-- `trigger_tools.py` — embeddable `register_trigger_tools(mcp, db_path)` for enqueue/get_result/check_health
+- `worker_tools.py` — embeddable `register_worker_tools(mcp, db_path, session_id)` for poll/deliver/probe
+- `trigger_tools.py` — embeddable `register_trigger_tools(mcp, db_path, session_id)` for enqueue/get_result/check_health
 - `worker_server.py` — standalone metis-worker MCP server (uses worker_tools internally)
 - `trigger_server.py` — standalone metis-trigger MCP server (uses trigger_tools internally)
 
@@ -58,7 +58,7 @@ Each layer depends only on layers interior to it. The domain is the innermost la
 
 `TaskQueue` (`src/metis/infrastructure/task_queue_facade.py`) is the public API facade. It exposes 3 methods and hides the 4-layer internals:
 
-- `enqueue(type, payload, priority, ttl_seconds) -> TaskId` — sync
+- `enqueue(type, payload, priority, ttl_seconds, capabilities_required, session_id) -> TaskId` — sync
 - `await wait_for_result(task_id, timeout) -> dict | None` — async
 - `is_worker_alive(timeout_seconds) -> bool` — sync
 
@@ -76,6 +76,25 @@ metis-trigger (enqueue side)          metis-worker (dispatcher side)
 Both servers share the same SQLite database via `METIS_DB_PATH`. The trigger server is for the main conversation (enqueue tasks, get results). The worker server is for the dispatcher sub-agent (poll for work, deliver results).
 
 For standalone deployment, run them as separate processes. For embedded deployment, use `register_worker_tools()` / `register_trigger_tools()` to add Metis tools to an existing MCP server — no separate processes needed.
+
+## Session Isolation
+
+Tasks carry an optional `session_id` that scopes them to a specific user or session. This is essential for HTTP-based MCP servers where multiple users share the same process.
+
+- `enqueue(session_id="alice")` stamps the session on the task
+- `claim_next(session_id="alice")` only returns tasks for that session
+- `claim_next(session_id=None)` returns any task (backward compatible)
+
+For embedded tools, `session_id` can be a callable that resolves per-request (e.g., reading from a contextvar set by HTTP middleware):
+
+```python
+register_worker_tools(mcp, db_path="...", session_id=get_current_session_id)
+register_trigger_tools(mcp, db_path="...", session_id=get_current_session_id)
+```
+
+The poll response includes `"sid"` when a task has a session_id, so the dispatcher can pass it through on subsequent tool calls.
+
+See [examples/http_multiuser/](../examples/http_multiuser/) for a complete working example.
 
 ## Long-Poll
 

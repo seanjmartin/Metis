@@ -85,9 +85,7 @@ class TestBlockAndWaitRoundtrip:
 class TestFireAndForgetRoundtrip:
     """Proves fire-and-forget mode: enqueue, return immediately, check later."""
 
-    async def test_enqueue_then_check_later(
-        self, db_conn: aiosqlite.Connection
-    ) -> None:
+    async def test_enqueue_then_check_later(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)
 
@@ -103,9 +101,7 @@ class TestFireAndForgetRoundtrip:
         task_id_str = enqueue_result.value.value
 
         # 2. Worker picks up and completes
-        poll_result = await poll.execute(
-            PollTaskInput(worker_id="w1", capabilities=[])
-        )
+        poll_result = await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
         assert poll_result.value is not None
         await deliver.execute(
             DeliverResultInput(

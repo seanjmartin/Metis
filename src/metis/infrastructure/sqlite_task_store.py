@@ -32,8 +32,9 @@ class SqliteTaskStore:
             """
             INSERT INTO tasks (id, type, payload, status, result, priority,
                                ttl_seconds, created_at, claimed_at, completed_at,
-                               capabilities_required, input_tokens, output_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               capabilities_required, session_id,
+                               input_tokens, output_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.id.value,
@@ -47,6 +48,7 @@ class SqliteTaskStore:
                 task.claimed_at.isoformat() if task.claimed_at else None,
                 task.completed_at.isoformat() if task.completed_at else None,
                 json.dumps(task.capabilities_required),
+                task.session_id,
                 task.input_tokens,
                 task.output_tokens,
             ),
@@ -54,22 +56,26 @@ class SqliteTaskStore:
         await self._conn.commit()
 
     async def get(self, task_id: TaskId) -> Task | None:
-        cursor = await self._conn.execute(
-            "SELECT * FROM tasks WHERE id = ?", (task_id.value,)
-        )
+        cursor = await self._conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id.value,))
         row = await cursor.fetchone()
         if row is None:
             return None
         return self._to_entity(row)
 
     async def claim_next(
-        self, capabilities: list[str], worker_id: WorkerId
+        self,
+        capabilities: list[str],
+        worker_id: WorkerId,
+        session_id: str | None = None,
     ) -> Task | None:
         """Atomically claim the highest-priority pending task matching capabilities.
 
         A task is claimable if every entry in its capabilities_required list
         is present in the worker's capabilities list. Tasks with empty
         capabilities_required are claimable by any worker.
+
+        When session_id is provided, only tasks with that session_id are claimable.
+        When session_id is None, all tasks are claimable (backward compatible).
         """
         cursor = await self._conn.execute(
             """
@@ -78,6 +84,7 @@ class SqliteTaskStore:
             WHERE id = (
                 SELECT id FROM tasks
                 WHERE status = 'pending'
+                  AND (? IS NULL OR session_id = ?)
                   AND NOT EXISTS (
                       SELECT 1 FROM json_each(tasks.capabilities_required) AS req
                       WHERE req.value NOT IN (SELECT value FROM json_each(?))
@@ -87,7 +94,7 @@ class SqliteTaskStore:
             )
             RETURNING *
             """,
-            (datetime.now(UTC).isoformat(), json.dumps(capabilities)),
+            (datetime.now(UTC).isoformat(), session_id, session_id, json.dumps(capabilities)),
         )
         row = await cursor.fetchone()
         await self._conn.commit()
@@ -146,14 +153,11 @@ class SqliteTaskStore:
             priority=TaskPriority(value=row["priority"]),
             ttl_seconds=row["ttl_seconds"],
             capabilities_required=json.loads(row["capabilities_required"]),
+            session_id=row["session_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
-            claimed_at=(
-                datetime.fromisoformat(row["claimed_at"]) if row["claimed_at"] else None
-            ),
+            claimed_at=(datetime.fromisoformat(row["claimed_at"]) if row["claimed_at"] else None),
             completed_at=(
-                datetime.fromisoformat(row["completed_at"])
-                if row["completed_at"]
-                else None
+                datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
             ),
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],

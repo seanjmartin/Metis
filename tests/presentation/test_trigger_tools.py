@@ -19,6 +19,18 @@ class TestRegisterTriggerTools:
         assert callable(handle.check_health)
         assert callable(handle.lifespan)
 
+    def test_should_accept_session_id_string(self, tmp_path: Path) -> None:
+        mcp = FastMCP("test")
+        handle = register_trigger_tools(mcp, db_path=str(tmp_path / "test.db"), session_id="alice")
+        assert callable(handle.enqueue)
+
+    def test_should_accept_session_id_callable(self, tmp_path: Path) -> None:
+        mcp = FastMCP("test")
+        handle = register_trigger_tools(
+            mcp, db_path=str(tmp_path / "test.db"), session_id=lambda: "bob"
+        )
+        assert callable(handle.enqueue)
+
     def test_should_not_conflict_with_host_tools(self, tmp_path: Path) -> None:
         mcp = FastMCP("test", warn_on_duplicate_tools=False)
 

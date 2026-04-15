@@ -137,6 +137,38 @@ queue.enqueue(
 
 Workers without the required capabilities will never see the task — it stays pending until a capable worker polls.
 
+## Session isolation
+
+When multiple users share the same MCP server (e.g., over HTTP), tasks must be scoped so each user's dispatcher only processes their own work.
+
+Tasks carry an optional `session_id`:
+
+```python
+queue.enqueue(
+    type="classify",
+    payload={...},
+    session_id="alice",  # only Alice's dispatcher can claim this
+)
+```
+
+The poll tool filters by session_id automatically when the server is configured with one:
+
+```python
+register_worker_tools(mcp, db_path="...", session_id=get_current_session_id)
+```
+
+The poll response includes `"sid"` when a task has a session_id:
+
+```json
+{"s": "t", "id": "...", "type": "classify", "payload": {...}, "sid": "alice"}
+```
+
+This lets the dispatcher pass the session identity through on any tool calls it makes back to the MCP server (e.g., via HTTP headers), so those calls execute in the correct user context.
+
+For stdio deployments (single user per process), session_id is not needed — it defaults to None and all tasks are claimable by any worker.
+
+See [examples/http_multiuser/](../examples/http_multiuser/) for a complete working example with two users.
+
 ## Cost tracking
 
 The dispatcher can report token usage alongside results:

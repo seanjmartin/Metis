@@ -160,6 +160,21 @@ class TestTaskValidation:
         assert task.ttl_seconds == 0
 
 
+class TestSessionId:
+    def test_should_default_to_none(self) -> None:
+        task = _make_task()
+        assert task.session_id is None
+
+    def test_should_accept_session_id(self) -> None:
+        task = Task(
+            id=TaskId.generate(),
+            type="test",
+            payload={},
+            session_id="user-alice::session-1",
+        )
+        assert task.session_id == "user-alice::session-1"
+
+
 class TestHeartbeat:
     def test_should_be_alive_when_recent(self) -> None:
         hb = Heartbeat(

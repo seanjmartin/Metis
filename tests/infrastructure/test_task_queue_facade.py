@@ -20,10 +20,19 @@ class TestEnqueue:
 
     def test_should_accept_custom_priority_and_ttl(self, tmp_path: Path) -> None:
         queue = TaskQueue(db_path=str(tmp_path / "test.db"))
-        task_id = queue.enqueue(
-            type="validate", payload={}, priority=10, ttl_seconds=60
-        )
+        task_id = queue.enqueue(type="validate", payload={}, priority=10, ttl_seconds=60)
         assert isinstance(task_id, TaskId)
+        queue.close()
+
+    def test_should_accept_session_id(self, tmp_path: Path) -> None:
+        queue = TaskQueue(db_path=str(tmp_path / "test.db"))
+        task_id = queue.enqueue(type="classify", payload={"text": "hello"}, session_id="alice")
+        assert isinstance(task_id, TaskId)
+
+        # Verify session_id was stored
+        conn = queue._get_sync_conn()
+        row = conn.execute("SELECT session_id FROM tasks WHERE id = ?", (task_id.value,)).fetchone()
+        assert row["session_id"] == "alice"
         queue.close()
 
 
@@ -45,9 +54,7 @@ class TestWaitForResult:
 
         # Now mark it as expired in DB directly
         conn = queue._get_sync_conn()
-        conn.execute(
-            "UPDATE tasks SET status = 'expired' WHERE id = ?", (task_id.value,)
-        )
+        conn.execute("UPDATE tasks SET status = 'expired' WHERE id = ?", (task_id.value,))
         conn.commit()
 
         with pytest.raises(ValueError, match="TASK_EXPIRED"):

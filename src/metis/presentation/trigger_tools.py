@@ -45,8 +45,13 @@ class TriggerToolsHandle:
 def register_trigger_tools(
     mcp: FastMCP,
     db_path: str = "~/.metis/metis.db",
+    session_id: str | Callable[[], str | None] | None = None,
 ) -> TriggerToolsHandle:
     """Register enqueue/get_result/check_health tools on an existing FastMCP instance.
+
+    session_id can be a static string, a callable returning the current
+    session ID (for HTTP servers with per-request context), or None for
+    the global task pool.
 
     NOT responsible for:
     - Creating the FastMCP server (caller does that)
@@ -81,12 +86,15 @@ def register_trigger_tools(
         if state["queue"] is None:
             return {"status": "error", "message": "Trigger tools not initialized"}
 
+        resolved_sid = session_id() if callable(session_id) else session_id
+
         task_id = state["queue"].enqueue(
             type=type,
             payload=payload,
             priority=priority,
             ttl_seconds=ttl_seconds,
             capabilities_required=capabilities_required,
+            session_id=resolved_sid,
         )
 
         return {"task_id": task_id.value}
@@ -134,11 +142,7 @@ def register_trigger_tools(
         if state["queue"] is None:
             return {"status": "error", "message": "Trigger tools not initialized"}
 
-        return {
-            "worker_alive": state["queue"].is_worker_alive(
-                timeout_seconds=timeout_seconds
-            )
-        }
+        return {"worker_alive": state["queue"].is_worker_alive(timeout_seconds=timeout_seconds)}
 
     return TriggerToolsHandle(
         enqueue=enqueue,

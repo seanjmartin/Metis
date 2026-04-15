@@ -31,6 +31,7 @@ class Task:
     priority: TaskPriority = field(default_factory=TaskPriority)
     ttl_seconds: int = 300
     capabilities_required: list[str] = field(default_factory=list)
+    session_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     claimed_at: datetime | None = None
     completed_at: datetime | None = None

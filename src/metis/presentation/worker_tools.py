@@ -53,8 +53,13 @@ def register_worker_tools(
     mcp: FastMCP,
     db_path: str = "~/.metis/metis.db",
     poll_timeout: int = 0,
+    session_id: str | Callable[[], str | None] | None = None,
 ) -> WorkerToolsHandle:
     """Register poll/deliver/probe tools on an existing FastMCP instance.
+
+    session_id can be a static string, a callable returning the current
+    session ID (for HTTP servers with per-request context), or None for
+    the global task pool.
 
     NOT responsible for:
     - Creating the FastMCP server (caller does that)
@@ -75,9 +80,7 @@ def register_worker_tools(
         task_store = SqliteTaskStore(conn)
         hb_store = SqliteHeartbeatStore(conn)
 
-        state["poll_uc"] = PollTaskUseCase(
-            task_store=task_store, heartbeat_store=hb_store
-        )
+        state["poll_uc"] = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
         state["deliver_uc"] = DeliverResultUseCase(task_store=task_store)
 
         try:
@@ -107,12 +110,14 @@ def register_worker_tools(
             return {"s": "err", "message": "Worker tools not initialized"}
 
         effective_timeout = timeout if timeout >= 0 else poll_timeout
+        resolved_sid = session_id() if callable(session_id) else session_id
 
         result = await state["poll_uc"].execute(
             PollTaskInput(
                 worker_id=worker_id,
                 capabilities=capabilities or [],
                 timeout_seconds=effective_timeout,
+                session_id=resolved_sid,
             )
         )
 
@@ -123,12 +128,15 @@ def register_worker_tools(
         if task is None:
             return {"s": "e"}
 
-        return {
+        response = {
             "s": "t",
             "id": task.id.value,
             "type": task.type,
             "payload": task.payload,
         }
+        if task.session_id is not None:
+            response["sid"] = task.session_id
+        return response
 
     @mcp.tool()
     async def deliver(

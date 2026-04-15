@@ -7,6 +7,7 @@ NOT responsible for:
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     claimed_at  TEXT,
     completed_at TEXT,
     capabilities_required TEXT NOT NULL DEFAULT '[]',
+    session_id    TEXT,
     input_tokens  INTEGER,
     output_tokens INTEGER
 );
@@ -35,6 +37,27 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     last_seen    TEXT NOT NULL
 );
 """
+
+
+_MIGRATIONS = [
+    "ALTER TABLE tasks ADD COLUMN session_id TEXT",
+]
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply schema migrations idempotently for existing databases."""
+    for sql in _MIGRATIONS:
+        with contextlib.suppress(sqlite3.OperationalError):
+            conn.execute(sql)
+    conn.commit()
+
+
+async def _run_migrations_async(conn: aiosqlite.Connection) -> None:
+    """Apply schema migrations idempotently for existing databases."""
+    for sql in _MIGRATIONS:
+        with contextlib.suppress(Exception):
+            await conn.execute(sql)
+    await conn.commit()
 
 
 async def init_async_database(db_path: str) -> aiosqlite.Connection:
@@ -48,6 +71,7 @@ async def init_async_database(db_path: str) -> aiosqlite.Connection:
     await conn.execute("PRAGMA busy_timeout=5000")
     await conn.executescript(SCHEMA_SQL)
     await conn.commit()
+    await _run_migrations_async(conn)
     return conn
 
 
@@ -62,4 +86,5 @@ def init_sync_database(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(SCHEMA_SQL)
     conn.commit()
+    _run_migrations(conn)
     return conn

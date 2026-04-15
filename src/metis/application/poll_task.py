@@ -30,6 +30,7 @@ class PollTaskInput:
     worker_id: str
     capabilities: list[str] = field(default_factory=list)
     timeout_seconds: float = 0
+    session_id: str | None = None
 
 
 class PollTaskUseCase:
@@ -45,9 +46,7 @@ class PollTaskUseCase:
     - Choosing the right timeout (see dispatcher prompt / calling code)
     """
 
-    def __init__(
-        self, task_store: TaskStore, heartbeat_store: HeartbeatStore
-    ) -> None:
+    def __init__(self, task_store: TaskStore, heartbeat_store: HeartbeatStore) -> None:
         self._task_store = task_store
         self._heartbeat_store = heartbeat_store
 
@@ -57,7 +56,11 @@ class PollTaskUseCase:
         await self._upsert_heartbeat(worker_id, input.capabilities)
         await self._task_store.expire_stale(datetime.now(UTC))
 
-        task = await self._task_store.claim_next(input.capabilities, worker_id)
+        task = await self._task_store.claim_next(
+            input.capabilities,
+            worker_id,
+            session_id=input.session_id,
+        )
         if task is not None or input.timeout_seconds <= 0:
             return Ok(task)
 
@@ -74,7 +77,11 @@ class PollTaskUseCase:
                 await self._upsert_heartbeat(worker_id, input.capabilities)
                 since_heartbeat = 0.0
 
-            task = await self._task_store.claim_next(input.capabilities, worker_id)
+            task = await self._task_store.claim_next(
+                input.capabilities,
+                worker_id,
+                session_id=input.session_id,
+            )
             if task is not None:
                 return Ok(task)
 
@@ -82,9 +89,7 @@ class PollTaskUseCase:
         await self._upsert_heartbeat(worker_id, input.capabilities)
         return Ok(None)
 
-    async def _upsert_heartbeat(
-        self, worker_id: WorkerId, capabilities: list[str]
-    ) -> None:
+    async def _upsert_heartbeat(self, worker_id: WorkerId, capabilities: list[str]) -> None:
         await self._heartbeat_store.upsert(
             Heartbeat(
                 worker_id=worker_id,
