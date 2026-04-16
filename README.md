@@ -170,9 +170,54 @@ ruff format --check src/ tests/
 ## Examples
 
 - [examples/integration/](examples/integration/) — single-user MCP server with embedded Metis (stdio)
-- [examples/http_multiuser/](examples/http_multiuser/) — multi-user HTTP server with session isolation
+- [examples/http_multiuser/](examples/http_multiuser/) — multi-user HTTP server with session isolation ([testing guide](#testing-the-http-example-with-claude-code))
 - [examples/simulated/](examples/simulated/) — simulated dispatcher for testing without an LLM
 - [examples/live/](examples/live/) — live dispatcher with real LLM round-trips
+
+## Testing the HTTP example with Claude Code
+
+The HTTP multi-user example can be tested end-to-end with a real Claude Code session acting as both the user and the dispatcher.
+
+**1. Start the server:**
+
+```bash
+python examples/http_multiuser/server.py
+```
+
+**2. Create a test workspace** with a `.mcp.json` pointing at the server:
+
+```json
+{
+  "mcpServers": {
+    "smart-notes": {
+      "command": "mcp-proxy",
+      "args": [
+        "http://localhost:8000/mcp",
+        "--transport", "streamablehttp",
+        "--headers", "userid", "alice"
+      ]
+    }
+  }
+}
+```
+
+This uses `mcp-proxy` to bridge Claude Code's stdio transport to the HTTP server, passing `userid: alice` on every request.
+
+**3. Open the test workspace in VS Code** with Claude Code. Ask it to save a note:
+
+> Save a note titled "Test" with content "Hello world"
+
+The first call returns `metis_dispatcher_required: true` with inline instructions telling the LLM how to spawn a dispatcher. The LLM reads the instructions, spawns a background sub-agent that polls for tasks, then retries `save_note`. The sub-agent claims the classify and validate tasks, processes them, delivers results, and `save_note` returns with an intelligent classification.
+
+**4. Automated tests** (no LLM needed):
+
+```bash
+# Queue-level session isolation
+python examples/http_multiuser/test_isolation.py
+
+# HTTP end-to-end via MCP client SDK
+python examples/http_multiuser/test_http_e2e.py
+```
 
 ## Documentation
 
