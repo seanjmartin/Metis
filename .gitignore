@@ -12,3 +12,5 @@ build/
 *.log
 docs/claude-sub-agent-capabilities.md
 .coverage
+.mcp.json
+.vscode/mcp.json
