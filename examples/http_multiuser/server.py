@@ -67,24 +67,56 @@ _db_path = os.environ.get("METIS_DB_PATH", "~/.metis/examples/http_multiuser.db"
 _queue: TaskQueue | None = None
 
 
-@asynccontextmanager
-async def lifespan(server: FastMCP):
-    global _queue
-    _queue = TaskQueue(db_path=_db_path)
-    try:
-        yield
-    finally:
-        if _queue is not None:
-            _queue.close()
-            _queue = None
-
-
-mcp = FastMCP("smart-notes-http", lifespan=lifespan)
+mcp = FastMCP("smart-notes-http")
 
 # Embed Metis worker tools — session-scoped via the contextvar
 _worker_handle = register_worker_tools(
     mcp, db_path=_db_path, session_id=get_session_id
 )
+
+
+@asynccontextmanager
+async def lifespan(server: FastMCP):
+    global _queue
+    _queue = TaskQueue(db_path=_db_path)
+    # Run the worker tools lifespan so poll/deliver are initialized
+    async with _worker_handle.lifespan(server):
+        try:
+            yield
+        finally:
+            if _queue is not None:
+                _queue.close()
+                _queue = None
+
+
+mcp._mcp_server.lifespan = lifespan
+
+
+# --- Prompts ---
+
+
+@mcp.prompt(
+    name="start-dispatcher",
+    title="Start Metis Dispatcher",
+    description="Spawn a background dispatcher agent that polls for tasks, processes them, and delivers results.",
+)
+def start_dispatcher() -> str:
+    return (
+        "Spawn a background sub-agent to act as a Metis dispatcher. "
+        "The sub-agent should run autonomously with this behavior:\n\n"
+        "LOOP:\n"
+        "1. Call poll(worker_id=\"dispatcher\", "
+        'capabilities=["classify", "summarize", "validate"], timeout=30).\n'
+        '2. If result has "s": "e" — no tasks. Poll again. '
+        "After 5 consecutive empty polls, stop.\n"
+        '3. If result has "s": "t" — process the task:\n'
+        "   - Read the task type and payload.instructions\n"
+        "   - Reason about the task and produce a structured JSON result\n"
+        "   - Call deliver(task_id=<id>, result=<your JSON result>)\n"
+        "4. After delivering, poll again immediately.\n\n"
+        "Never produce text output between tool calls. Only call tools.\n"
+        "Process every task you receive before polling again."
+    )
 
 
 # --- Tools ---
@@ -100,20 +132,8 @@ async def save_note(title: str, content: str) -> dict[str, Any]:
     assert _queue is not None, "Server not initialized"
     session_id = get_session_id()
 
-    if not _queue.is_worker_alive():
-        return {
-            "saved": True,
-            "title": title,
-            "category": "uncategorized",
-            "validated": False,
-            "session_id": session_id,
-            "metis_dispatcher_required": True,
-            "message": (
-                "Spawn a background sub-agent with smart-notes-http MCP access "
-                "to enable intelligent classification and validation."
-            ),
-        }
-
+    # Always enqueue tasks — if no dispatcher is running, wait_for_result
+    # will timeout and we fall back to degraded defaults.
     classify_id = _queue.enqueue(
         type="classify",
         payload={
@@ -143,8 +163,11 @@ async def save_note(title: str, content: str) -> dict[str, Any]:
         session_id=session_id,
     )
 
-    classify_result = await _queue.wait_for_result(classify_id, timeout=20)
-    validate_result = await _queue.wait_for_result(validate_id, timeout=20)
+    worker_alive = _queue.is_worker_alive()
+    wait_timeout = 20 if worker_alive else 1
+
+    classify_result = await _queue.wait_for_result(classify_id, timeout=wait_timeout)
+    validate_result = await _queue.wait_for_result(validate_id, timeout=wait_timeout)
 
     category = "uncategorized"
     if classify_result and "category" in classify_result:
@@ -156,15 +179,31 @@ async def save_note(title: str, content: str) -> dict[str, Any]:
         is_safe = validate_result.get("safe", True)
         risks = validate_result.get("risks", [])
 
-    return {
+    dispatched = classify_result is not None or validate_result is not None
+    response: dict[str, Any] = {
         "saved": True,
         "title": title,
         "category": category,
-        "validated": True,
+        "validated": dispatched,
         "safe": is_safe,
         "risks": risks,
         "session_id": session_id,
     }
+    if not dispatched:
+        response["metis_dispatcher_required"] = True
+        response["message"] = (
+            "No dispatcher is running. Spawn a background sub-agent to act as "
+            "a Metis dispatcher using this server's poll and deliver tools.\n\n"
+            "The sub-agent should loop:\n"
+            "1. Call poll(worker_id=\"dispatcher\", "
+            'capabilities=["classify","summarize","validate"], timeout=30)\n'
+            '2. If {"s":"e"} — no tasks, poll again. Stop after 5 empty polls.\n'
+            '3. If {"s":"t",...} — read type and payload.instructions, reason '
+            "about the task, call deliver(task_id=<id>, result=<JSON>)\n"
+            "4. After delivering, poll again immediately.\n\n"
+            "Once the dispatcher is running, retry this tool call."
+        )
+    return response
 
 
 @mcp.tool()
