@@ -32,14 +32,14 @@ Behind the scenes, the tool handler enqueues three reasoning tasks, the dispatch
 - **User-owned reasoning — BYOT (bring your own tokens).** The dispatcher runs in the user's session under their subscription, their rate limits, their policy. Your server is thin; the user's LLM does the work. No per-server API keys, no per-server billing.
 - **Persistence across client sessions.** Tasks live in SQLite, not in a connection. A task enqueued before a client restart is still waiting when the dispatcher reconnects.
 
-### How it composes with the main agent's tools
+### How it composes with the rest of the agent stack
 
-Metis is not a replacement for subagent tools like Claude Code's `Task` — they work at different layers:
+Metis is deliberately narrow — a routing layer, not an agent framework. It sits between two composable pieces:
 
-- **`Task`** lets the main agent orchestrate sub-agents it knows about. Useful when the main agent needs to delegate work it has decided to delegate.
-- **Metis** lets MCP servers orchestrate reasoning the main agent doesn't need to know about. Useful when a tool needs to be smart without leaking its internals into the caller's context.
+- **Upward, with main-agent subagent tools** like Claude Code's `Task`. `Task` lets the *main agent* orchestrate sub-agents it knows about. Metis fills the complementary role — MCP servers orchestrate reasoning the main agent doesn't need to know about. Different concerns, different layers.
+- **Downward, with dispatcher frameworks.** The dispatcher that Metis routes to can be anything that calls its worker tools — a prompted Claude Code sub-agent running a simple poll-reason-deliver loop, or a full [deepagents](https://github.com/langchain-ai/deepagents) harness (planning, filesystem, sub-agents, permissions). The [LangChain bridge](#langchain-bridge--compose-with-deepagents-byot) makes the deepagents composition especially clean: deepagents agents run on the caller's LLM via MCP sampling, so BYOT stays intact even with a richly-capable dispatcher.
 
-Different concerns, different layers. They compose.
+Metis routes. Something else reasons. You pick the something else.
 
 ## What this buys you — three vignettes
 
