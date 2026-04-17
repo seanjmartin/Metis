@@ -206,8 +206,10 @@ def register_trigger_tools(
                 "error": {"code": "INVALID_TASK_ID", "message": str(e)},
             }
 
+        resolved_sid = session_id() if callable(session_id) else session_id
+
         try:
-            await state["queue"].cancel(tid)
+            await state["queue"].cancel(tid, session_id=resolved_sid)
         except MetisException as e:
             spec_status = _spec_status_from_error_code(e.error.code)
             return {

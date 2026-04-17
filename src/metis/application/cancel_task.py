@@ -24,6 +24,11 @@ from metis.domain.value_objects import TaskId
 @dataclass(frozen=True)
 class CancelTaskInput:
     task_id: str
+    # Authorization context — when provided, the cancel is rejected if the
+    # task's session_id does not match. Leave None to skip the check (which
+    # is the correct behaviour for single-tenant deployments and for callers
+    # who have already authorized out-of-band).
+    session_id: str | None = None
 
 
 class CancelTaskUseCase:
@@ -33,6 +38,12 @@ class CancelTaskUseCase:
     Terminal tasks (COMPLETE/CONSUMED/EXPIRED/FAILED/CANCELLED) are rejected
     with TaskAlreadyTerminalError per spec rule that terminal states
     must never transition.
+
+    Per the MCP async-tasks spec §Security: when an authorization context
+    is provided, the receiver MUST bind tasks to it. This use case enforces
+    that by rejecting cancel attempts whose ``session_id`` does not match
+    the task's ``session_id`` — the caller sees a TaskNotFoundError so
+    cross-session task IDs are not enumerable.
     """
 
     def __init__(self, task_store: TaskStore) -> None:
@@ -43,6 +54,12 @@ class CancelTaskUseCase:
         task = await self._task_store.get(task_id)
 
         if task is None:
+            return Err(TaskNotFoundError(message=f"Task {input.task_id} not found"))
+
+        # Authorization check — if caller supplied a session_id, require match.
+        # Return TaskNotFoundError rather than a permission error so the caller
+        # cannot enumerate tasks that belong to other sessions.
+        if input.session_id is not None and task.session_id != input.session_id:
             return Err(TaskNotFoundError(message=f"Task {input.task_id} not found"))
 
         if task.status.is_terminal:

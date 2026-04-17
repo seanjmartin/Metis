@@ -8,9 +8,13 @@ from metis.domain.errors import (
     Err,
     InvalidTransitionError,
     MetisError,
+    MetisException,
     NoWorkerError,
     Ok,
+    TaskAlreadyTerminalError,
+    TaskCancelledError,
     TaskExpiredError,
+    TaskFailedError,
     TaskNotFoundError,
 )
 
@@ -81,3 +85,43 @@ class TestErrorTypes:
         error = TaskNotFoundError(message="frozen")
         with pytest.raises(AttributeError):
             error.message = "changed"  # type: ignore[misc]
+
+    def test_task_cancelled_should_have_correct_code(self) -> None:
+        error = TaskCancelledError(message="gone")
+        assert error.code == "TASK_CANCELLED"
+        assert isinstance(error, MetisError)
+
+    def test_task_failed_should_have_correct_code(self) -> None:
+        error = TaskFailedError(message="broke")
+        assert error.code == "TASK_FAILED"
+        assert isinstance(error, MetisError)
+
+    def test_task_already_terminal_should_have_correct_code(self) -> None:
+        error = TaskAlreadyTerminalError(message="done")
+        assert error.code == "TASK_ALREADY_TERMINAL"
+        assert isinstance(error, MetisError)
+
+
+class TestMetisException:
+    def test_wraps_typed_error(self) -> None:
+        inner = TaskCancelledError(message="user cancelled")
+        exc = MetisException(inner)
+        assert exc.error is inner
+        assert isinstance(exc, Exception)
+
+    def test_str_includes_code_and_message(self) -> None:
+        exc = MetisException(TaskExpiredError(message="ttl blown"))
+        text = str(exc)
+        assert "TASK_EXPIRED" in text
+        assert "ttl blown" in text
+
+    def test_callers_can_discriminate_via_isinstance(self) -> None:
+        """Usage pattern: catch MetisException, branch on .error type."""
+        exc = MetisException(TaskFailedError(message="boom"))
+        if isinstance(exc.error, TaskFailedError):
+            branch = "failed"
+        elif isinstance(exc.error, TaskCancelledError):
+            branch = "cancelled"
+        else:
+            branch = "other"
+        assert branch == "failed"

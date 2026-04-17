@@ -64,6 +64,56 @@ class TestWaitForResult:
         assert exc_info.value.error.code == "TASK_EXPIRED"
         queue.close()
 
+    async def test_should_raise_on_cancelled_task(self, tmp_path: Path) -> None:
+        from metis.domain.errors import TaskCancelledError
+
+        queue = TaskQueue(db_path=str(tmp_path / "test.db"))
+        task_id = queue.enqueue(type="test", payload={})
+        await queue.cancel(task_id)
+
+        with pytest.raises(MetisException) as exc_info:
+            await queue.wait_for_result(task_id, timeout=1.0)
+        assert isinstance(exc_info.value.error, TaskCancelledError)
+        assert exc_info.value.error.code == "TASK_CANCELLED"
+        queue.close()
+
+    async def test_should_raise_on_failed_task_with_error_details(self, tmp_path: Path) -> None:
+        from metis.domain.errors import TaskFailedError
+
+        queue = TaskQueue(db_path=str(tmp_path / "test.db"))
+        task_id = queue.enqueue(type="test", payload={})
+
+        # Mark the task FAILED directly with structured error details
+        conn = queue._get_sync_conn()
+        conn.execute(
+            "UPDATE tasks SET status = 'failed', error_code = ?, error_message = ? WHERE id = ?",
+            ("UPSTREAM_TIMEOUT", "upstream took too long", task_id.value),
+        )
+        conn.commit()
+
+        with pytest.raises(MetisException) as exc_info:
+            await queue.wait_for_result(task_id, timeout=1.0)
+        assert isinstance(exc_info.value.error, TaskFailedError)
+        assert "UPSTREAM_TIMEOUT" in exc_info.value.error.message
+        assert "upstream took too long" in exc_info.value.error.message
+        queue.close()
+
+    async def test_cancel_respects_session_id_at_facade(self, tmp_path: Path) -> None:
+        """Facade-level session_id filter on cancel."""
+        from metis.domain.errors import TaskNotFoundError
+
+        queue = TaskQueue(db_path=str(tmp_path / "test.db"))
+        task_id = queue.enqueue(type="test", payload={}, session_id="alice")
+
+        with pytest.raises(MetisException) as exc_info:
+            await queue.cancel(task_id, session_id="bob")
+        assert isinstance(exc_info.value.error, TaskNotFoundError)
+
+        # Alice can still cancel
+        await queue.cancel(task_id, session_id="alice")
+        assert queue.get_task_status(task_id) is not None
+        queue.close()
+
 
 class TestIsWorkerAlive:
     def test_should_return_false_when_no_heartbeats(self, tmp_path: Path) -> None:

@@ -192,3 +192,68 @@ class TestSyncFallback:
         result = model.invoke([HumanMessage(content="q")])
 
         assert result.content == "sync ok"
+
+    async def test_generate_raises_inside_running_loop(self) -> None:
+        """Sync _generate must refuse to run if there's an active event loop."""
+        session = FakeServerSession(responses=[_text_result("ok")])
+        model = MCPSamplingChatModel(session=session)
+
+        import pytest
+
+        with pytest.raises(RuntimeError, match="active event loop"):
+            model._generate([HumanMessage(content="q")])
+
+
+class TestParamPassthrough:
+    """Verify create_message receives the kwargs we care about."""
+
+    async def test_include_context_threaded_when_set_on_model(self) -> None:
+        session = FakeServerSession(responses=[_text_result("ok")])
+        model = MCPSamplingChatModel(session=session, include_context="thisServer")
+
+        await model.ainvoke([HumanMessage(content="q")])
+
+        assert session.calls[0].get("include_context") == "thisServer"
+
+    async def test_include_context_absent_when_not_set(self) -> None:
+        session = FakeServerSession(responses=[_text_result("ok")])
+        model = MCPSamplingChatModel(session=session)
+
+        await model.ainvoke([HumanMessage(content="q")])
+
+        assert "include_context" not in session.calls[0]
+
+    async def test_temperature_passthrough(self) -> None:
+        session = FakeServerSession(responses=[_text_result("ok")])
+        model = MCPSamplingChatModel(session=session)
+
+        bound = model.bind(temperature=0.3)
+        await bound.ainvoke([HumanMessage(content="q")])
+
+        assert session.calls[0]["temperature"] == 0.3
+
+    async def test_tool_choice_passthrough_via_bind_tools(self) -> None:
+        from langchain_core.tools import tool
+
+        @tool
+        def noop() -> str:
+            """No-op."""
+            return "ok"
+
+        session = FakeServerSession(responses=[_text_result("ok")])
+        model = MCPSamplingChatModel(session=session)
+
+        bound = model.bind_tools([noop], tool_choice={"mode": "required"})
+        await bound.ainvoke([HumanMessage(content="q")])
+
+        assert session.calls[0]["tool_choice"] == {"mode": "required"}
+
+    async def test_model_preferences_passthrough(self) -> None:
+        session = FakeServerSession(responses=[_text_result("ok")])
+        model = MCPSamplingChatModel(session=session)
+
+        prefs = {"hints": [{"name": "claude-3-sonnet"}], "intelligencePriority": 0.9}
+        bound = model.bind(model_preferences=prefs)
+        await bound.ainvoke([HumanMessage(content="q")])
+
+        assert session.calls[0]["model_preferences"] == prefs

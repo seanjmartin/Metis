@@ -52,9 +52,9 @@ Four components:
 
 1. **`metis` (Python package)** — Shared library providing `TaskQueue` and embeddable tool registration. Any MCP server imports this to enqueue work and wait for results. Uses SQLite in WAL mode as the message bus.
 
-2. **`metis-worker` (MCP server)** — Exposes `poll()`, `deliver()`, and `probe()` tools to a dispatcher agent. Supports long-polling via `timeout` parameter.
+2. **`metis-worker` (MCP server)** — Exposes dispatcher tools: `poll`, `deliver`, `probe`, `report_progress`, `check_cancelled`, `request_input`, `await_input_response`, `request_sampling`, `await_sampling_response`. Supports long-polling via `timeout` parameter.
 
-3. **`metis-trigger` (MCP server)** — Exposes `enqueue()`, `get_result()`, and `check_health()` tools for the main conversation or testing.
+3. **`metis-trigger` (MCP server)** — Exposes caller tools: `enqueue`, `get_result`, `cancel`, `provide_input`, `check_health`. All return MCP spec-compliant task envelopes (`{"task": {"id", "status"}, ...}`).
 
 4. **Dispatcher agent** — Background sub-agent that polls, executes tasks (possibly spawning its own children for complex work), and delivers results.
 
@@ -188,6 +188,8 @@ Test names describe behavior: `test_should_reject_expired_task`.
 
 - **SQLite WAL as message bus** — see [ADR 001](docs/adr/001-sqlite-as-message-bus.md)
 - **Sync enqueue / async wait** — see [ADR 002](docs/adr/002-sync-enqueue-async-wait.md)
+- **MCP async-tasks spec alignment (2025-11-25)** — see [ADR 003](docs/adr/003-mcp-async-tasks-alignment.md)
+- **LangChain bridge as external adapter** — see [ADR 004](docs/adr/004-langchain-bridge-scope.md)
 - **Atomic `claim_next`** — `UPDATE...RETURNING` prevents double-claiming by concurrent dispatchers
 - **Metis is always optional** — every integration point has a deterministic fallback
 - **Long-poll** — `poll(timeout=N)` blocks server-side to minimize idle token cost

@@ -417,11 +417,16 @@ class TaskQueue:
             "model": getattr(result, "model", None),
         }
 
-    async def cancel(self, task_id: TaskId) -> None:
+    async def cancel(self, task_id: TaskId, session_id: str | None = None) -> None:
         """Cancel a non-terminal task. Async — opens an ephemeral connection.
 
+        When ``session_id`` is provided, the task's session_id must match or
+        the cancel is rejected with TaskNotFoundError (no task-enumeration
+        leak). Leave ``session_id`` as None in single-tenant deployments.
+
         Raises MetisException wrapping TaskAlreadyTerminalError if the task
-        is already in a terminal state, or TaskNotFoundError if no such task.
+        is already in a terminal state, or TaskNotFoundError if no such task
+        (or the task belongs to a different session).
         """
         from metis.application.cancel_task import CancelTaskInput, CancelTaskUseCase
         from metis.domain.errors import MetisException
@@ -431,7 +436,9 @@ class TaskQueue:
         conn = await init_async_database(self._db_path)
         try:
             use_case = CancelTaskUseCase(task_store=SqliteTaskStore(conn))
-            result = await use_case.execute(CancelTaskInput(task_id=task_id.value))
+            result = await use_case.execute(
+                CancelTaskInput(task_id=task_id.value, session_id=session_id)
+            )
             if result.is_error:
                 raise MetisException(result.error)
         finally:

@@ -94,3 +94,55 @@ class TestWaitForResult:
 
         assert result.is_error
         assert result.error.code == "TASK_NOT_FOUND"
+
+    async def test_should_detect_cancelled_task(self, db_conn: aiosqlite.Connection) -> None:
+        task_store = SqliteTaskStore(db_conn)
+
+        task = Task(id=TaskId.generate(), type="test", payload={}, priority=TaskPriority())
+        await task_store.insert(task)
+        task.cancel()
+        await task_store.update(task)
+
+        wait = WaitForResultUseCase(task_store=task_store)
+        result = await wait.execute(WaitForResultInput(task_id=task.id.value, timeout_seconds=1.0))
+
+        assert result.is_error
+        assert result.error.code == "TASK_CANCELLED"
+
+    async def test_should_detect_failed_task_and_propagate_error_details(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        from metis.domain.value_objects import WorkerId
+
+        task_store = SqliteTaskStore(db_conn)
+        task = Task(id=TaskId.generate(), type="test", payload={}, priority=TaskPriority())
+        await task_store.insert(task)
+        task.claim(WorkerId(value="w1"))
+        task.fail("UPSTREAM", "external API said no")
+        await task_store.update(task)
+
+        wait = WaitForResultUseCase(task_store=task_store)
+        result = await wait.execute(WaitForResultInput(task_id=task.id.value, timeout_seconds=1.0))
+
+        assert result.is_error
+        assert result.error.code == "TASK_FAILED"
+        assert "UPSTREAM" in result.error.message
+        assert "external API said no" in result.error.message
+
+    async def test_should_return_none_on_consumed_task(self, db_conn: aiosqlite.Connection) -> None:
+        """CONSUMED = result already fetched. Waiting on it again returns None, not raises."""
+        from metis.domain.value_objects import WorkerId
+
+        task_store = SqliteTaskStore(db_conn)
+        task = Task(id=TaskId.generate(), type="test", payload={}, priority=TaskPriority())
+        await task_store.insert(task)
+        task.claim(WorkerId(value="w1"))
+        task.complete({"answer": 42})
+        task.consume()
+        await task_store.update(task)
+
+        wait = WaitForResultUseCase(task_store=task_store)
+        result = await wait.execute(WaitForResultInput(task_id=task.id.value, timeout_seconds=1.0))
+
+        assert result.is_ok
+        assert result.value is None

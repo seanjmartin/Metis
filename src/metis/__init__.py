@@ -15,7 +15,10 @@ from metis.domain.errors import (
     MetisError,
     MetisException,
     NoWorkerError,
+    TaskAlreadyTerminalError,
+    TaskCancelledError,
     TaskExpiredError,
+    TaskFailedError,
     TaskNotFoundError,
 )
 from metis.domain.value_objects import TaskId, TaskStatus
@@ -27,7 +30,10 @@ __all__ = [
     "MetisException",
     "NoWorkerError",
     "Task",
+    "TaskAlreadyTerminalError",
+    "TaskCancelledError",
     "TaskExpiredError",
+    "TaskFailedError",
     "TaskId",
     "TaskNotFoundError",
     "TaskQueue",

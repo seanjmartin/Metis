@@ -79,3 +79,56 @@ class TestCancelTask:
 
         assert result.is_error
         assert isinstance(result.error, TaskAlreadyTerminalError)
+
+
+class TestSessionIsolation:
+    async def test_rejects_cancel_from_different_session(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        """Cancel with a session_id that doesn't match the task's must fail as 'not found'."""
+        from metis.application.enqueue_task import EnqueueTaskInput as EnqInp
+
+        store = SqliteTaskStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=store)
+        tid = (await enqueue.execute(EnqInp(type="t", payload={}, session_id="alice"))).value
+
+        use_case = CancelTaskUseCase(task_store=store)
+        result = await use_case.execute(CancelTaskInput(task_id=tid.value, session_id="bob"))
+
+        assert result.is_error
+        assert isinstance(result.error, TaskNotFoundError)  # no enumeration leak
+
+        # Task is still non-terminal — Alice can still cancel it
+        still = await store.get(tid)
+        assert still is not None
+        assert still.status == TaskStatus.PENDING
+
+    async def test_allows_cancel_when_session_matches(self, db_conn: aiosqlite.Connection) -> None:
+        from metis.application.enqueue_task import EnqueueTaskInput as EnqInp
+
+        store = SqliteTaskStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=store)
+        tid = (await enqueue.execute(EnqInp(type="t", payload={}, session_id="alice"))).value
+
+        use_case = CancelTaskUseCase(task_store=store)
+        result = await use_case.execute(CancelTaskInput(task_id=tid.value, session_id="alice"))
+
+        assert result.is_ok
+        cancelled = await store.get(tid)
+        assert cancelled is not None
+        assert cancelled.status == TaskStatus.CANCELLED
+
+    async def test_allows_cancel_when_no_session_id_supplied(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        """Single-tenant case: no session check when caller doesn't supply one."""
+        from metis.application.enqueue_task import EnqueueTaskInput as EnqInp
+
+        store = SqliteTaskStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=store)
+        tid = (await enqueue.execute(EnqInp(type="t", payload={}, session_id="alice"))).value
+
+        use_case = CancelTaskUseCase(task_store=store)
+        result = await use_case.execute(CancelTaskInput(task_id=tid.value))
+
+        assert result.is_ok
