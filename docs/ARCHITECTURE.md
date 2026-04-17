@@ -60,7 +60,7 @@ Each layer depends only on layers interior to it. The domain is the innermost la
 
 - `enqueue(type, payload, priority, ttl_seconds, capabilities_required, session_id) -> TaskId` — sync
 - `await wait_for_result(task_id, timeout, ctx=None) -> dict | None` — async; raises `MetisException` (wrapping a typed `MetisError` such as `TaskExpiredError`, `TaskCancelledError`, `TaskFailedError`) on domain failure. `ctx` (a FastMCP `Context`) is used to forward progress and elicitation.
-- `await cancel(task_id) -> None` — async; raises `MetisException(TaskAlreadyTerminalError)` if the task is already terminal.
+- `await cancel(task_id, session_id=None) -> None` — async; raises `MetisException(TaskAlreadyTerminalError)` if the task is already terminal. When `session_id` is set, a cross-session cancel is rejected as `TaskNotFoundError` (no enumeration leak) per the MCP spec's authorization-context rule.
 - `await provide_input(task_id, response) -> None` — async; used by the transparent elicitation loop inside `get_result`.
 - `is_worker_alive(timeout_seconds) -> bool` — sync
 

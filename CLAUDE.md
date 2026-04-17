@@ -103,7 +103,15 @@ async with TaskQueue(db_path="~/.myserver/metis.db") as queue:
 
 `enqueue()` and `is_worker_alive()` are sync. `wait_for_result()` is async. See [ADR 002](docs/adr/002-sync-enqueue-async-wait.md) for why.
 
-`wait_for_result()` returns `dict | None` (`None` on timeout) and raises `MetisException` with a typed `.error` attribute (e.g. `TaskExpiredError`, `TaskNotFoundError`) on domain failures. `TaskQueue` supports both `async with` and `with` — or call `.close()` explicitly.
+`wait_for_result()` returns `dict | None` (`None` on timeout) and raises `MetisException` with a typed `.error` attribute on domain failures. The error type enumerates what went wrong:
+
+- `TaskExpiredError` — TTL elapsed
+- `TaskCancelledError` — caller cancelled it
+- `TaskFailedError` — dispatcher marked it FAILED (carries `error_code` + `error_message`)
+- `TaskNotFoundError` — no such task (or cross-session lookup was rejected)
+- `TaskAlreadyTerminalError` — an operation targeted a task already in a terminal state
+
+All are re-exported from `metis`. `TaskQueue` supports both `async with` and `with` — or call `.close()` explicitly.
 
 The `deliver()` tool accepts optional `input_tokens` and `output_tokens` for per-task cost tracking.
 

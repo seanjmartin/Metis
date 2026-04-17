@@ -74,7 +74,7 @@ Different concerns, different layers. They compose.
 Metis implements the [MCP async-tasks specification (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks):
 
 - **Tool handles** return spec-compliant envelopes: `{"task": {"id", "status"}, "result"?, "error"?}` — with the five spec states `working` / `input_required` / `completed` / `failed` / `cancelled` and the terminal-state invariant ([spec §Task Status Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle))
-- **Cancellation** via `cancel(task_id)` — terminal tasks are rejected with JSON-RPC `-32602` per [spec §Task Cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation)
+- **Cancellation** via `cancel(task_id)` — terminal tasks are rejected with JSON-RPC `-32602` per [spec §Task Cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation). In multi-user deployments the tool auto-scopes to the originating session; cross-session cancels are rejected as `TaskNotFoundError` per the spec's authorization-context requirement.
 - **Progress** forwarded through `ctx.report_progress()` on the originating client's progressToken — reuses the existing MCP [progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress) channel, as [§Task Progress Notifications](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-progress-notifications) requires
 - **Elicitation** — dispatchers can ask the user for input mid-task via [`ctx.elicit()`](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation), transparently to the caller (spec's `input_required` status)
 - **Sampling** — dispatchers can invoke the client's LLM via [`sampling/createMessage`](https://modelcontextprotocol.io/specification/2025-11-25/client/sampling) for sub-completions, and `enqueue_with_sampling_fallback` degrades gracefully when no dispatcher is running
@@ -315,7 +315,7 @@ The codebase follows a four-layer architecture (`Presentation -> Application -> 
 - **Long-poll** — `poll(timeout=55)` blocks server-side, minimizing idle dispatcher token cost
 - **Transparent elicitation** — dispatcher asks, `get_result` surfaces the prompt to the client, writes the response back, dispatcher resumes — caller sees a single tool call
 - **Progress forwarding** — dispatcher's `report_progress` flows through to the client's progressToken
-- **Cancellation** — `cancel(task_id)` at any time; dispatcher sees it on `check_cancelled` and stops; terminal-state invariant enforced
+- **Cancellation** — `cancel(task_id)` at any time; dispatcher sees it on `check_cancelled` and stops; terminal-state invariant enforced; cross-session cancels rejected as `TaskNotFoundError`
 - **Sampling fallback** — `enqueue_with_sampling_fallback(ctx=...)` completes the task via the client's LLM when no dispatcher is alive
 - **Self-healing** — if the dispatcher is dead, return a signal so the calling LLM can respawn it
 - **Disposable contexts** — worker agent contexts are discarded after each task
