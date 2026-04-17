@@ -211,6 +211,36 @@ class TestDeliverResult:
         assert result.is_error
         assert result.error.code == "INVALID_TRANSITION"
 
+    async def test_should_reject_deliver_on_cancelled_task(
+        self, db_conn: aiosqlite.Connection
+    ) -> None:
+        """Delivering to a cancelled task must return TASK_ALREADY_TERMINAL."""
+        from metis.application.cancel_task import CancelTaskInput, CancelTaskUseCase
+
+        task_store = SqliteTaskStore(db_conn)
+        hb_store = SqliteHeartbeatStore(db_conn)
+        enqueue = EnqueueTaskUseCase(task_store=task_store)
+        poll = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
+        deliver = DeliverResultUseCase(task_store=task_store)
+        cancel = CancelTaskUseCase(task_store=task_store)
+
+        enqueue_result = await enqueue.execute(EnqueueTaskInput(type="test", payload={}))
+        await poll.execute(PollTaskInput(worker_id="w1", capabilities=[]))
+
+        # Client cancels mid-task
+        cancel_res = await cancel.execute(CancelTaskInput(task_id=enqueue_result.value.value))
+        assert cancel_res.is_ok
+
+        # Dispatcher tries to deliver — must be rejected
+        result = await deliver.execute(
+            DeliverResultInput(
+                task_id=enqueue_result.value.value,
+                result={"answer": 42},
+            )
+        )
+        assert result.is_error
+        assert result.error.code == "TASK_ALREADY_TERMINAL"
+
     async def test_should_store_token_counts(self, db_conn: aiosqlite.Connection) -> None:
         task_store = SqliteTaskStore(db_conn)
         hb_store = SqliteHeartbeatStore(db_conn)

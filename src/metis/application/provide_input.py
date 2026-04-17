@@ -1,8 +1,8 @@
-"""Use case: deliver a completed result for a claimed task.
+"""Use case: write a user response into an INPUT_REQUIRED task.
 
 NOT responsible for:
-- Task claiming (see PollTaskUseCase)
-- Notifying the enqueuer (see WaitForResultUseCase polling)
+- Requesting the input (see RequestInputUseCase used by the dispatcher)
+- Rendering the prompt to the user (that's the trigger-side ctx.elicit loop)
 """
 
 from __future__ import annotations
@@ -23,25 +23,21 @@ from metis.domain.value_objects import TaskId
 
 
 @dataclass(frozen=True)
-class DeliverResultInput:
+class ProvideInputInput:
     task_id: str
-    result: dict[str, Any]
-    input_tokens: int | None = None
-    output_tokens: int | None = None
+    response: dict[str, Any]
 
 
-class DeliverResultUseCase:
-    """Completes a claimed task with the worker's result.
+class ProvideInputUseCase:
+    """Transitions a task from INPUT_REQUIRED back to CLAIMED with the response attached.
 
-    NOT responsible for:
-    - Polling for tasks (see PollTaskUseCase)
-    - Marking tasks as consumed (see WaitForResultUseCase)
+    Rejects if the task is terminal or not currently awaiting input.
     """
 
     def __init__(self, task_store: TaskStore) -> None:
         self._task_store = task_store
 
-    async def execute(self, input: DeliverResultInput) -> Result[None]:
+    async def execute(self, input: ProvideInputInput) -> Result[None]:
         task_id = TaskId(value=input.task_id)
         task = await self._task_store.get(task_id)
 
@@ -52,19 +48,16 @@ class DeliverResultUseCase:
             return Err(
                 TaskAlreadyTerminalError(
                     message=(
-                        f"Task {input.task_id} is already in terminal status "
-                        f"{task.status.value!r}; deliver rejected"
+                        f"Task {input.task_id} is in terminal status "
+                        f"{task.status.value!r}; provide_input rejected"
                     )
                 )
             )
 
         try:
-            task.complete(input.result)
+            task.provide_input(input.response)
         except ValueError as e:
             return Err(InvalidTransitionError(message=str(e)))
-
-        task.input_tokens = input.input_tokens
-        task.output_tokens = input.output_tokens
 
         await self._task_store.update(task)
         return Ok(None)

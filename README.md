@@ -1,36 +1,100 @@
 # Metis
 
-**Agentic capabilities for MCP servers, powered by the LLM that's already using them.**
+**Free the calling LLM from plumbing — keep it working in a high-level language, not assembler.**
 
-An LLM calls your MCP server's tools. Metis lets your MCP server harness that same LLM — dispatching reasoning tasks to background sub-agents that think, use tools, and return results. The main conversation never sees the work happening. It just gets intelligent answers from what looks like a regular tool call.
+An LLM calls your MCP server's tools. With Metis, the server *contains* the reasoning: the tool handler dispatches work to a background agent, receives a structured result, and returns it. The caller never sees the sub-reasoning, the intermediate artifacts, or the plumbing — it just gets a useful answer to the user's actual question.
 
 Named for the Greek Titaness of wisdom. Zeus consumed Metis to gain her counsel — MCP servers consume Metis to gain reasoning ability.
 
-## The problem
+## Why this exists
 
-MCP servers are deterministic. When they encounter something that needs judgment — ambiguous input, unstructured content, multi-step navigation — they either push the complexity back into the main conversation (cluttering it) or don't handle it at all.
+Every token the calling LLM spends on plumbing — crafting low-level tool calls, parsing verbose responses, chaining sub-steps, handling retries — is a token not spent on the user's actual problem. And long contexts degrade: attention dilutes, reasoning drifts. Keeping the main conversation clean is not tidiness; it's measurably better behaviour.
 
-Even when the tools themselves are straightforward, the cost adds up. The main LLM has to craft tool calls, interpret verbose responses, and handle errors — each response flooding its context with tokens that have nothing to do with the user's actual question. Multiply that across a multi-step workflow and the main conversation becomes dominated by plumbing. Every token spent on mechanics is cognitive capacity not spent on the user's actual problem.
+The usual answers to "MCP servers need reasoning" both fail that test:
 
-The LLM driving the conversation has reasoning ability, but it's focused on the user's question. Asking it to manage low-level tool mechanics is like making a developer code in assembler when a high-level language exists. What if your MCP server could raise the abstraction level — so the calling LLM spends its cognitive capacity on reasoning and flow, not plumbing?
+- **Bundle an LLM client in the server.** Now every server needs an API key, billing, model policy, and retry loop — and each call still returns verbose artifacts the caller has to digest.
+- **Push orchestration to the caller.** The main LLM becomes a coordinator of low-level steps. Its context fills with mechanics. The user's question gets less cognitive capacity.
 
-## How Metis solves it
+Even a main-agent subagent tool (e.g. Claude Code's `Task`) doesn't solve it: the *caller* still has to decide-to-delegate, frame the sub-problem, and route the result. That's still plumbing in the hot path.
+
+Metis takes a different route: **the MCP server itself owns the delegation decision**. From the caller's perspective, the tool is just a tool — it either accepts a natural-language question or a low-level parameter, and returns a finished answer. The reasoning inside is invisible.
+
+```
+summarize_notes(titles=[...]) → {"summary": "..."}
+```
+
+Behind the scenes, the tool handler enqueues three reasoning tasks, the dispatcher claims them, returns tailored results, and the handler composes the final summary. The main conversation sees one tool call and one useful answer — not the plumbing that produced it.
+
+### What makes this different
+
+- **The dispatcher tailors its response to the question.** A deterministic tool has to choose once: return the full artifact (floods the caller's context with noise) or a fixed-shape summary (often wrong-shaped for the actual question). An intelligent dispatcher reasons about what summary is useful for *this* question and returns it. That's a context-hygiene win a plain tool structurally cannot deliver.
+- **One dispatcher serves many MCP servers.** Your user's dispatcher is a shared reasoning pool. Every server you install taps the same pool — no per-server API keys, no per-server model policy.
+- **User-owned reasoning — BYOT (bring your own tokens).** The dispatcher runs in the user's session under their subscription, their rate limits, their policy. Your server is thin; the user's LLM does the work. No per-server API keys, no per-server billing.
+- **Persistence across client sessions.** Tasks live in SQLite, not in a connection. A task enqueued before a client restart is still waiting when the dispatcher reconnects.
+
+### How it composes with the main agent's tools
+
+Metis is not a replacement for subagent tools like Claude Code's `Task` — they work at different layers:
+
+- **`Task`** lets the main agent orchestrate sub-agents it knows about. Useful when the main agent needs to delegate work it has decided to delegate.
+- **Metis** lets MCP servers orchestrate reasoning the main agent doesn't need to know about. Useful when a tool needs to be smart without leaking its internals into the caller's context.
+
+Different concerns, different layers. They compose.
+
+## What this buys you — three vignettes
+
+### 1. The browser-backed tool
+
+*User:* "What's in my portfolio?"
+
+**Without Metis.** The MCP server exposes low-level primitives — `navigate()`, `extract()`, `handle_login()`. The main LLM orchestrates: fetch login page, submit credentials, navigate to portfolio, extract the holdings table, parse each row. Each step floods the main conversation with raw HTML and intermediate JSON. By the time the answer is synthesised, the main LLM is carrying ~15k tokens of bookkeeping — most of which dilutes its attention on the user's *next* question.
+
+**With Metis.** The server exposes one tool: `get_portfolio()`. The tool handler dispatches to the dispatcher, which does all the navigation and parsing in its own disposable context, and returns `{"holdings": [...]}`. The main conversation sees one tool call and one clean answer. The next question arrives against fresh context.
+
+### 2. The smart classifier
+
+*User:* "Save this note titled 'Tax strategy Q3'."
+
+**Without Metis.** Either the server is dumb (saves as "uncategorized") or the main LLM must classify before saving — spending cognitive capacity deciding "finance or personal?" before it can execute the user's actual request. The classification artifacts (reasoning about category, confidence, alternatives) end up in the caller's context, crowding out the user's workflow.
+
+**With Metis.** `save_note(title, content)` is the whole interface. Inside, the handler enqueues a classification task, waits, receives `{"category": "finance", "confidence": 0.94}`, and saves the note. The main LLM was never distracted from the user's actual flow — and the *reasoning* that produced the category stays out of its context entirely.
+
+### 3. Progressive disclosure — one tool, three abstraction levels
+
+*User:* "What did I read about LLM evals last month?"
+
+**Deterministic tool.** `query_notes(sql=...)` forces the main LLM to author SQL against a schema it doesn't know. It guesses, asks for the schema (more tokens), or generates something broken.
+
+**Metis tool, simple case.** `query_notes(question="what did I read about LLM evals?")` — the dispatcher turns the question into SQL, runs it, and returns a prose summary *tailored to this question*. A deterministic post-processor can't tailor that — it has to pick one output shape up front; the dispatcher reasons about what shape is useful *here*.
+
+**Metis tool, full control.** The *same* tool still accepts `sql=` when the LLM needs precise control, or `return_raw=True` for structured rows. The calling LLM pays cognitive cost only at the level it chooses. Agency preserved; context protected.
+
+## Spec-aligned
+
+Metis implements the MCP async-tasks specification (2025-11-25):
+
+- **Tool handles** return spec-compliant envelopes: `{"task": {"id", "status"}, "result"?, "error"?}`
+- **Cancellation** via `cancel(task_id)` with terminal-state guard (-32602)
+- **Progress** forwarded through `ctx.report_progress()` on the originating client's progressToken
+- **Elicitation** — dispatchers can ask the user for input mid-task via `ctx.elicit()`, transparently to the caller
+- **Sampling** — dispatchers can invoke the client's LLM for sub-completions, and `enqueue_with_sampling_fallback` degrades gracefully when no dispatcher is running
+
+Metis-distinctive capabilities not in the spec (shared dispatcher pool, SQLite persistence, session isolation, capability filtering) are preserved alongside.
 
 ```
 LLM conversation (clean, focused on user)
   |
   +---> calls MCP Server tool
           |
-          +====> LLM sub-agent (disposable context, spun up by the same LLM)
+          +====> dispatcher agent (long-running, user-owned)
           |        - reasons about the problem
-          |        - may use tools (browser, files, APIs)
+          |        - reports progress (→ user's progress bar)
+          |        - may ask the user a clarifying question (→ elicitation)
+          |        - may call the client's LLM for a sub-completion (→ sampling)
           |        - returns structured result
-          |        - context discarded
           |
           +---> MCP server returns intelligent result
 ```
-
-Your MCP server enqueues a task. A background dispatcher agent — running as a sub-agent of the same LLM — picks it up, reasons about it (possibly spawning its own children for complex work), and delivers a result. The main conversation stays clean.
 
 ## Quick start
 
@@ -43,25 +107,36 @@ pip install -e ".[dev]"
 ```python
 from metis import TaskQueue
 
-queue = TaskQueue(db_path="~/.myserver/metis.db")
+async with TaskQueue(db_path="~/.myserver/metis.db") as queue:
+    # Fire-and-forget
+    queue.enqueue(type="classify", payload={"text": "..."})
 
-# Fire-and-forget
-queue.enqueue(type="classify", payload={"text": "..."})
-
-# Block-and-wait
-task_id = queue.enqueue(type="validate", payload={"content": "..."})
-result = await queue.wait_for_result(task_id, timeout=30)
+    # Block-and-wait
+    task_id = queue.enqueue(type="validate", payload={"content": "..."})
+    result = await queue.wait_for_result(task_id, timeout=30, ctx=ctx)
 ```
 
-Or register Metis tools directly in an existing MCP server:
+Passing `ctx` (the FastMCP `Context` from the tool handler) enables progress forwarding, transparent elicitation, and sampling round-trips.
+
+Or register Metis tools directly in an existing MCP server. Both
+`register_worker_tools()` and `register_trigger_tools()` return a handle
+whose `.lifespan` **must** be composed into the host server's lifespan —
+the tools will raise `RuntimeError` at call time otherwise:
 
 ```python
 from metis.presentation.worker_tools import register_worker_tools
 from metis.presentation.trigger_tools import register_trigger_tools
 
 mcp = FastMCP("my-server")
-register_worker_tools(mcp, db_path="~/.myserver/metis.db")
-register_trigger_tools(mcp, db_path="~/.myserver/metis.db")
+worker_handle = register_worker_tools(mcp, db_path="~/.myserver/metis.db")
+trigger_handle = register_trigger_tools(mcp, db_path="~/.myserver/metis.db")
+
+@asynccontextmanager
+async def lifespan(server):
+    async with worker_handle.lifespan(server), trigger_handle.lifespan(server):
+        yield
+
+mcp._mcp_server.lifespan = lifespan
 ```
 
 ### Run as standalone MCP servers
@@ -69,6 +144,101 @@ register_trigger_tools(mcp, db_path="~/.myserver/metis.db")
 ```bash
 METIS_DB_PATH=~/.metis/metis.db python -m metis.presentation.worker_server
 METIS_DB_PATH=~/.metis/metis.db python -m metis.presentation.trigger_server
+```
+
+## Design pattern: progressive disclosure
+
+Metis tools can be *optionally smart*. Expose a tool at multiple abstraction levels and let the calling LLM pay cognitive cost only when it wants control:
+
+```python
+@mcp.tool()
+async def query_notes(
+    question: str | None = None,   # natural-language question (cheap)
+    sql: str | None = None,        # explicit SQL (full control)
+    return_raw: bool = False,      # rows instead of prose summary
+) -> dict:
+    if sql:
+        return {"rows": await db.execute(sql)}
+    # Dispatch the NL question to a reasoning agent:
+    task_id = queue.enqueue(type="nl_query", payload={"q": question})
+    result = await queue.wait_for_result(task_id, timeout=30, ctx=ctx)
+    if return_raw:
+        return {"rows": result["rows"]}
+    return {"summary": result["prose"]}  # context-aware, tailored to the question
+```
+
+The calling LLM preserves full agency (it can drop to SQL) but doesn't have to carry the cost unless it wants to. The dispatcher tailors its summary to the specific question — something a deterministic post-processor can't do.
+
+## Spec-aligned capabilities in action
+
+Short snippets showing how each capability is used. All four flow through `ctx` — the FastMCP `Context` from the tool handler — and are transparent to the calling LLM.
+
+### Progress
+
+The dispatcher reports progress at meaningful steps; Metis forwards it to the client's progress bar via `ctx.report_progress()`.
+
+```python
+# Dispatcher side (sub-agent worker)
+await report_progress(task_id=tid, progress=0.0, message="starting")
+await report_progress(task_id=tid, progress=0.5, message="analysing")
+await report_progress(task_id=tid, progress=0.9, message="finalising")
+await deliver(task_id=tid, result={...})
+
+# Trigger side (your MCP tool handler — automatic)
+@mcp.tool()
+async def summarize_notes(titles: list[str], ctx: Context) -> dict:
+    tid = queue.enqueue(type="summarize", payload={"titles": titles})
+    return await queue.wait_for_result(tid, timeout=60, ctx=ctx)  # progress flows through ctx
+```
+
+### Cancellation
+
+The caller can cancel a running task; dispatchers should check between sub-steps.
+
+```python
+# Caller
+cancel_result = await trigger.cancel(task_id="...")
+# → {"task": {"id": "...", "status": "cancelled"}}
+
+# Dispatcher between steps
+status = await check_cancelled(task_id=tid)
+if status["cancelled"]:
+    # Stop work and poll again — don't deliver (TASK_ALREADY_TERMINAL rejection)
+    break
+```
+
+### Elicitation (transparent)
+
+The dispatcher pauses to ask the user a question; the trigger-side `get_result` loop surfaces it via `ctx.elicit()`, writes the reply back, and resumes — all invisible to the caller.
+
+```python
+# Dispatcher side
+seq = await request_input(
+    task_id=tid,
+    prompt="The note could be 'work' or 'finance'. Which?",
+    schema={"type": "object"},
+)
+reply = await await_input_response(task_id=tid, seq=seq["seq"], timeout=55)
+# reply["response"] → {"response": "finance"}
+
+# Caller sees: one save_note() tool call that eventually returns the classified note
+```
+
+### Sampling fallback
+
+When the dispatcher is offline, `enqueue_with_sampling_fallback` completes the task via the client's own LLM so the caller's flow still works.
+
+```python
+@mcp.tool()
+async def classify(text: str, ctx: Context) -> dict:
+    tid = await queue.enqueue_with_sampling_fallback(
+        type="classify",
+        payload={"instructions": f"Classify: {text}"},
+        ctx=ctx,
+    )
+    result = await queue.wait_for_result(tid, timeout=30, ctx=ctx)
+    # result["metis"]["fallback"] == "sampling" if the dispatcher was down
+    return result
 ```
 
 ## Client configuration
@@ -119,7 +289,7 @@ Add to `.vscode/mcp.json`:
 
 The dispatcher requires a custom agent defined at `.github/agents/metis-dispatcher.md` with `tools: [metis-worker]` in the frontmatter — bare `#runSubagent` does not inherit MCP tools. Invoke with `@metis-dispatcher` in Copilot Agent mode.
 
-See [docs/DISPATCHER.md](docs/DISPATCHER.md) for dispatcher prompts, long-poll tuning, and routing strategies.
+See [docs/DISPATCHER.md](docs/DISPATCHER.md) for dispatcher prompts, long-poll tuning, and spec-aligned capabilities.
 
 ## Architecture
 
@@ -128,9 +298,9 @@ Four components:
 | Component | Role |
 |-----------|------|
 | **`metis`** (Python package) | Shared library. `TaskQueue` facade over a SQLite task queue in WAL mode. |
-| **`metis-worker`** (MCP server) | Exposes `poll()`, `deliver()`, `probe()` to the dispatcher agent. |
-| **`metis-trigger`** (MCP server) | Exposes `enqueue()`, `get_result()`, `check_health()` for the main conversation. |
-| **Dispatcher agent** | Background sub-agent that polls, executes tasks, and delivers results. |
+| **`metis-worker`** (MCP server) | Exposes dispatcher tools: `poll`, `deliver`, `probe`, `report_progress`, `check_cancelled`, `request_input`, `await_input_response`, `request_sampling`, `await_sampling_response`. |
+| **`metis-trigger`** (MCP server) | Exposes caller tools: `enqueue`, `get_result`, `cancel`, `provide_input`, `check_health`. All return spec-compliant task envelopes. |
+| **Dispatcher agent** | Background sub-agent that polls, executes tasks (reports progress, asks questions, samples as needed), and delivers results. |
 
 Both MCP servers share the same SQLite database. No external message broker needed.
 
@@ -141,6 +311,10 @@ The codebase follows a four-layer architecture (`Presentation -> Application -> 
 - **Fire-and-forget** — queue work, return immediately
 - **Block-and-wait** — queue work, hold open until result or timeout
 - **Long-poll** — `poll(timeout=55)` blocks server-side, minimizing idle dispatcher token cost
+- **Transparent elicitation** — dispatcher asks, `get_result` surfaces the prompt to the client, writes the response back, dispatcher resumes — caller sees a single tool call
+- **Progress forwarding** — dispatcher's `report_progress` flows through to the client's progressToken
+- **Cancellation** — `cancel(task_id)` at any time; dispatcher sees it on `check_cancelled` and stops; terminal-state invariant enforced
+- **Sampling fallback** — `enqueue_with_sampling_fallback(ctx=...)` completes the task via the client's LLM when no dispatcher is alive
 - **Self-healing** — if the dispatcher is dead, return a signal so the calling LLM can respawn it
 - **Disposable contexts** — worker agent contexts are discarded after each task
 - **Capability filtering** — tasks declare required capabilities, only matching workers can claim them
@@ -149,11 +323,12 @@ The codebase follows a four-layer architecture (`Presentation -> Application -> 
 ## Use cases
 
 - **Tool-call abstraction** — the main LLM says "get my portfolio holdings"; a Metis sub-agent handles the five browser navigations, table parsing, and error recovery behind a single high-level MCP tool. The calling LLM never sees the tool-call syntax or raw responses.
-- **Browser-backed extraction** — navigate websites and return structured data
-- **Security validation** — examine untrusted content in an isolated context (disposable taster pattern)
-- **Content quality gates** — validate LLM-generated output before returning it
-- **Complex classification** — route ambiguous input that's too nuanced for rules
-- **Multi-step research** — gather and synthesize information from multiple sources
+- **Progressive disclosure** — one tool exposes a natural-language interface, a structured interface, and a low-level escape hatch; the calling LLM chooses its level per call.
+- **Browser-backed extraction** — navigate websites and return structured data.
+- **Security validation** — examine untrusted content in an isolated context (disposable taster pattern).
+- **Content quality gates** — validate LLM-generated output before returning it.
+- **Complex classification** — route ambiguous input that's too nuanced for rules.
+- **Multi-step research** — gather and synthesize information from multiple sources.
 
 ## Development
 
@@ -219,12 +394,19 @@ python examples/http_multiuser/test_isolation.py
 python examples/http_multiuser/test_http_e2e.py
 ```
 
+## Honest tradeoffs
+
+- **Someone has to run the dispatcher.** It's a long-running background agent in the user's session. For personal software this is fine — the user *is* the operator. For multi-tenant server deployments it's a real supervision burden. We're not pretending otherwise.
+- **Dispatcher quality gates your output.** If the dispatcher returns weak reasoning, your MCP tool returns weak reasoning. Metis moves *where* the reasoning happens; it doesn't guarantee its quality.
+- **Not every tool should use Metis.** Orchestration layers should be the last resort, justified by a specific thing that can't be done in-process. A deterministic tool that already does the right thing doesn't need a reasoning agent behind it.
+- **Cognitive load reduction is the primary optimisation.** Other properties (persistence, shared pool, spec alignment) are nice; they're not the headline. If your calling LLM's context isn't under pressure, Metis may be over-engineering.
+
 ## Documentation
 
 - [DESIGN.md](docs/DESIGN.md) — full design document and positioning
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — layer responsibilities and dependency rules
 - [PATTERNS.md](docs/PATTERNS.md) — canonical vertical slice reference
-- [DISPATCHER.md](docs/DISPATCHER.md) — dispatcher architecture, prompts, and long-poll tuning
+- [DISPATCHER.md](docs/DISPATCHER.md) — dispatcher architecture, prompts, spec-aligned capabilities, long-poll tuning
 
 ## License
 

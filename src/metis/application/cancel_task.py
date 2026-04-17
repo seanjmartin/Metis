@@ -1,18 +1,17 @@
-"""Use case: deliver a completed result for a claimed task.
+"""Use case: cancel a non-terminal task.
 
 NOT responsible for:
-- Task claiming (see PollTaskUseCase)
-- Notifying the enqueuer (see WaitForResultUseCase polling)
+- Notifying a dispatcher that has already claimed the task
+  (dispatcher observes cancellation on its next interaction)
+- Cleaning up spawned sub-agents (dispatcher's responsibility)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from metis.domain.errors import (
     Err,
-    InvalidTransitionError,
     Ok,
     Result,
     TaskAlreadyTerminalError,
@@ -23,25 +22,23 @@ from metis.domain.value_objects import TaskId
 
 
 @dataclass(frozen=True)
-class DeliverResultInput:
+class CancelTaskInput:
     task_id: str
-    result: dict[str, Any]
-    input_tokens: int | None = None
-    output_tokens: int | None = None
 
 
-class DeliverResultUseCase:
-    """Completes a claimed task with the worker's result.
+class CancelTaskUseCase:
+    """Transitions a non-terminal task to CANCELLED.
 
-    NOT responsible for:
-    - Polling for tasks (see PollTaskUseCase)
-    - Marking tasks as consumed (see WaitForResultUseCase)
+    Valid source states: PENDING, CLAIMED, INPUT_REQUIRED.
+    Terminal tasks (COMPLETE/CONSUMED/EXPIRED/FAILED/CANCELLED) are rejected
+    with TaskAlreadyTerminalError per spec rule that terminal states
+    must never transition.
     """
 
     def __init__(self, task_store: TaskStore) -> None:
         self._task_store = task_store
 
-    async def execute(self, input: DeliverResultInput) -> Result[None]:
+    async def execute(self, input: CancelTaskInput) -> Result[None]:
         task_id = TaskId(value=input.task_id)
         task = await self._task_store.get(task_id)
 
@@ -53,18 +50,17 @@ class DeliverResultUseCase:
                 TaskAlreadyTerminalError(
                     message=(
                         f"Task {input.task_id} is already in terminal status "
-                        f"{task.status.value!r}; deliver rejected"
+                        f"{task.status.value!r}; cancel rejected"
                     )
                 )
             )
 
+        # COMPLETE is not terminal per is_terminal but should still be rejected —
+        # COMPLETE only transitions to CONSUMED, not CANCELLED.
         try:
-            task.complete(input.result)
+            task.cancel()
         except ValueError as e:
-            return Err(InvalidTransitionError(message=str(e)))
-
-        task.input_tokens = input.input_tokens
-        task.output_tokens = input.output_tokens
+            return Err(TaskAlreadyTerminalError(message=str(e)))
 
         await self._task_store.update(task)
         return Ok(None)

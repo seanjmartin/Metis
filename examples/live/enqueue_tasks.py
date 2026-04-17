@@ -78,36 +78,34 @@ TASKS = [
 
 
 async def main(db_path: str) -> None:
-    queue = TaskQueue(db_path=db_path)
+    async with TaskQueue(db_path=db_path) as queue:
+        print(f"Database: {db_path}")
+        print(f"Worker alive: {queue.is_worker_alive()}\n")
 
-    print(f"Database: {db_path}")
-    print(f"Worker alive: {queue.is_worker_alive()}\n")
+        # Enqueue all tasks
+        task_ids = []
+        for task_def in TASKS:
+            task_id = queue.enqueue(
+                type=task_def["type"],
+                payload=task_def["payload"],
+                ttl_seconds=task_def["ttl_seconds"],
+            )
+            task_ids.append((task_def["type"], task_id))
+            print(f"Enqueued [{task_def['type']}] -> {task_id}")
 
-    # Enqueue all tasks
-    task_ids = []
-    for task_def in TASKS:
-        task_id = queue.enqueue(
-            type=task_def["type"],
-            payload=task_def["payload"],
-            ttl_seconds=task_def["ttl_seconds"],
-        )
-        task_ids.append((task_def["type"], task_id))
-        print(f"Enqueued [{task_def['type']}] -> {task_id}")
+        print(f"\n--- Waiting for {len(task_ids)} results (timeout: 120s each) ---\n")
 
-    print(f"\n--- Waiting for {len(task_ids)} results (timeout: 120s each) ---\n")
+        # Wait for each result
+        for task_type, task_id in task_ids:
+            print(f"[{task_type}] Waiting...")
+            result = await queue.wait_for_result(task_id, timeout=120)
 
-    # Wait for each result
-    for task_type, task_id in task_ids:
-        print(f"[{task_type}] Waiting...")
-        result = await queue.wait_for_result(task_id, timeout=120)
+            if result is None:
+                print(f"[{task_type}] TIMEOUT — no result received\n")
+            else:
+                print(f"[{task_type}] Result: {result}\n")
 
-        if result is None:
-            print(f"[{task_type}] TIMEOUT — no result received\n")
-        else:
-            print(f"[{task_type}] Result: {result}\n")
-
-    print("--- Done ---")
-    queue.close()
+        print("--- Done ---")
 
 
 if __name__ == "__main__":

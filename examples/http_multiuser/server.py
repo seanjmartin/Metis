@@ -78,15 +78,13 @@ _worker_handle = register_worker_tools(
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     global _queue
-    _queue = TaskQueue(db_path=_db_path)
-    # Run the worker tools lifespan so poll/deliver are initialized
-    async with _worker_handle.lifespan(server):
+    # Compose both lifespans — TaskQueue for enqueue/wait, worker tools for poll/deliver
+    async with TaskQueue(db_path=_db_path) as queue, _worker_handle.lifespan(server):
+        _queue = queue
         try:
             yield
         finally:
-            if _queue is not None:
-                _queue.close()
-                _queue = None
+            _queue = None
 
 
 mcp._mcp_server.lifespan = lifespan

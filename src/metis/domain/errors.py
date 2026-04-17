@@ -50,6 +50,27 @@ class NoWorkerError(MetisError):
 
 
 @dataclass(frozen=True)
+class TaskAlreadyTerminalError(MetisError):
+    """Raised when an operation targets a task already in a terminal state."""
+
+    code: str = "TASK_ALREADY_TERMINAL"
+
+
+@dataclass(frozen=True)
+class TaskCancelledError(MetisError):
+    """Raised when a task has been cancelled."""
+
+    code: str = "TASK_CANCELLED"
+
+
+@dataclass(frozen=True)
+class TaskFailedError(MetisError):
+    """Raised when a task has entered the FAILED state."""
+
+    code: str = "TASK_FAILED"
+
+
+@dataclass(frozen=True)
 class Ok(Generic[T]):
     """Successful result wrapping a value."""
 
@@ -80,3 +101,24 @@ class Err:
 
 
 Result = Ok[T] | Err
+
+
+class MetisException(Exception):  # noqa: N818 — "Error" suffix is taken by the MetisError dataclass hierarchy above
+    """Exception wrapping a MetisError for the public API boundary.
+
+    The Result pattern is used internally by use cases. When a public
+    facade method has to raise (because returning a Result would burden
+    every caller), it raises MetisException with the typed MetisError
+    attached as `.error` so callers can discriminate with isinstance.
+
+    Example:
+        try:
+            result = await queue.wait_for_result(task_id, timeout=30)
+        except MetisException as e:
+            if isinstance(e.error, TaskExpiredError):
+                ...
+    """
+
+    def __init__(self, error: MetisError) -> None:
+        super().__init__(f"{error.code}: {error.message}")
+        self.error = error

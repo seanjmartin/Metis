@@ -37,13 +37,17 @@ LOOP:
 2. If result has "s": "e" — timeout expired, no tasks. Call poll again. Say nothing.
 3. If result has "s": "t" — process the task:
    - Read the "type" and "payload.instructions"
+   - Optionally call report_progress(task_id=<id>, progress=0.0, message="starting")
    - Reason about the task and produce a structured JSON result
+   - Optionally call report_progress(task_id=<id>, progress=0.9, message="finalizing")
    - Call deliver(task_id=<id>, result=<your JSON result>)
 4. After delivering, call poll again immediately.
 
 Never produce text output between tool calls. Only call tools.
 After 3 consecutive empty polls (each is ~55 seconds), stop.
 ```
+
+Between tool calls on long-running work, call `check_cancelled(task_id)` occasionally — if it returns `{"cancelled": true}`, stop working and call `poll` again (a terminal task cannot be delivered to anyway; wasted deliver calls will error with TASK_ALREADY_TERMINAL).
 
 ### Routing dispatcher
 
@@ -169,6 +173,44 @@ For stdio deployments (single user per process), session_id is not needed — it
 
 See [examples/http_multiuser/](../examples/http_multiuser/) for a complete working example with two users.
 
+## MCP async-tasks spec capabilities
+
+Metis implements the MCP async-tasks spec (2025-11-25). The dispatcher has access to four spec-aligned worker tools beyond `poll` / `deliver`:
+
+### `report_progress(task_id, progress, total?, message?)`
+
+Record progress for an in-flight task. Metis forwards the update to the originating client via `ctx.report_progress()` — so end users see motion even when a task takes a while.
+
+```
+report_progress(task_id="...", progress=0.25, total=1.0, message="loaded documents")
+report_progress(task_id="...", progress=0.75, message="drafting reply")
+```
+
+Don't spam — once per meaningful step is enough. The trigger side drains progress every 250ms.
+
+### `check_cancelled(task_id)`
+
+For long-running work, call this between sub-steps. Returns `{"cancelled": true|false, "status": "<spec-status>"}`. If the task is cancelled, stop and `poll` again.
+
+### `request_input(task_id, prompt, schema)` + `await_input_response(task_id, seq, timeout)`
+
+Pause a task and ask the originating client for user input via MCP elicitation. The trigger-side `get_result` loop calls `ctx.elicit()` on the client; when the user responds, the task transitions back to `CLAIMED` and its `input_response` field is populated.
+
+```
+request_input(task_id="...", prompt="Which category?", schema={"type": "object"})
+→ {"s": "ok", "seq": 1}
+await_input_response(task_id="...", seq=1, timeout=55)
+→ {"s": "resp", "response": {"response": "finance"}}
+```
+
+Prefer asking over guessing when the user's intent is ambiguous.
+
+### `request_sampling(task_id, messages, system?, max_tokens?)` + `await_sampling_response(task_id, seq, timeout)`
+
+Ask the originating client's LLM for a completion via MCP sampling. Useful for sub-tasks where a different model policy helps. Same round-trip shape as `request_input`.
+
+Prefer local reasoning over sampling — only use it when you need a model the dispatcher doesn't have.
+
 ## Cost tracking
 
 The dispatcher can report token usage alongside results:
@@ -177,7 +219,7 @@ The dispatcher can report token usage alongside results:
 deliver(task_id=<id>, result={...}, input_tokens=1500, output_tokens=500)
 ```
 
-Token counts are stored per-task in SQLite. The `get_result()` trigger tool returns them alongside the result when available.
+Token counts are stored per-task in SQLite. The `get_result()` trigger tool surfaces them in the `metis` namespace of the MCP async-tasks response envelope (`{"task": {...}, "result": {...}, "metis": {"input_tokens": 1500, "output_tokens": 500}}`) when available.
 
 ## Client setup
 

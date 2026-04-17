@@ -29,8 +29,12 @@ from mcp.server.fastmcp import FastMCP
 
 from metis.application.deliver_result import DeliverResultInput, DeliverResultUseCase
 from metis.application.poll_task import PollTaskInput, PollTaskUseCase
+from metis.application.report_progress import ReportProgressInput, ReportProgressUseCase
+from metis.domain.spec_mapping import internal_to_spec_status
+from metis.domain.value_objects import TaskId
 from metis.infrastructure.database import init_async_database
 from metis.infrastructure.sqlite_heartbeat_store import SqliteHeartbeatStore
+from metis.infrastructure.sqlite_progress_store import SqliteProgressStore
 from metis.infrastructure.sqlite_task_store import SqliteTaskStore
 
 
@@ -46,6 +50,12 @@ class WorkerToolsHandle:
     poll: Callable
     deliver: Callable
     probe: Callable
+    report_progress: Callable
+    check_cancelled: Callable
+    request_input: Callable
+    await_input_response: Callable
+    request_sampling: Callable
+    await_sampling_response: Callable
     lifespan: Callable
 
 
@@ -69,7 +79,10 @@ def register_worker_tools(
     state: dict[str, Any] = {
         "poll_uc": None,
         "deliver_uc": None,
+        "progress_uc": None,
+        "task_store": None,
         "conn": None,
+        "lifespan_entered": False,
     }
 
     @asynccontextmanager
@@ -79,9 +92,15 @@ def register_worker_tools(
 
         task_store = SqliteTaskStore(conn)
         hb_store = SqliteHeartbeatStore(conn)
+        progress_store = SqliteProgressStore(conn)
 
+        state["task_store"] = task_store
         state["poll_uc"] = PollTaskUseCase(task_store=task_store, heartbeat_store=hb_store)
         state["deliver_uc"] = DeliverResultUseCase(task_store=task_store)
+        state["progress_uc"] = ReportProgressUseCase(
+            task_store=task_store, progress_store=progress_store
+        )
+        state["lifespan_entered"] = True
 
         try:
             yield
@@ -89,6 +108,14 @@ def register_worker_tools(
             if state["conn"] is not None:
                 await state["conn"].close()
                 state["conn"] = None
+
+    def _require_initialized() -> None:
+        if not state["lifespan_entered"]:
+            raise RuntimeError(
+                "metis worker tools not initialized: the handle.lifespan returned by "
+                "register_worker_tools() must be composed into your FastMCP server's "
+                "lifespan. See examples/http_multiuser/ for the pattern."
+            )
 
     @mcp.tool()
     async def poll(
@@ -106,8 +133,7 @@ def register_worker_tools(
         Returns {"s": "e"} if no task is available (minimal tokens).
         Returns {"s": "t", "id": ..., "type": ..., "payload": ...} if a task is claimed.
         """
-        if state["poll_uc"] is None:
-            return {"s": "err", "message": "Worker tools not initialized"}
+        _require_initialized()
 
         effective_timeout = timeout if timeout >= 0 else poll_timeout
         resolved_sid = session_id() if callable(session_id) else session_id
@@ -152,8 +178,7 @@ def register_worker_tools(
         Returns {"s": "ok"} on success.
         Returns {"s": "err", "message": ...} on failure.
         """
-        if state["deliver_uc"] is None:
-            return {"s": "err", "message": "Worker tools not initialized"}
+        _require_initialized()
 
         deliver_result = await state["deliver_uc"].execute(
             DeliverResultInput(
@@ -188,9 +213,195 @@ def register_worker_tools(
             "actual_seconds": round(elapsed, 1),
         }
 
+    @mcp.tool()
+    async def report_progress(
+        task_id: str,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        """Report a progress update for a claimed task.
+
+        The originating trigger-side tool forwards this via the client's
+        progressToken when available, so end users see motion.
+
+        Returns {"s": "ok", "seq": N} on success.
+        Returns {"s": "err", "message": ...} if the task is terminal or missing.
+        """
+        _require_initialized()
+
+        result = await state["progress_uc"].execute(
+            ReportProgressInput(
+                task_id=task_id,
+                progress=progress,
+                total=total,
+                message=message,
+            )
+        )
+        if result.is_error:
+            return {"s": "err", "code": result.error.code, "message": result.error.message}
+        return {"s": "ok", "seq": result.value}
+
+    @mcp.tool()
+    async def check_cancelled(task_id: str) -> dict[str, Any]:
+        """Check whether the client has requested cancellation of this task.
+
+        Long-running dispatchers should call this between sub-steps so they
+        can bail out early rather than burning work the client has abandoned.
+
+        Returns {"cancelled": true|false, "status": <spec-status>}.
+        """
+        _require_initialized()
+
+        task = await state["task_store"].get(TaskId(value=task_id))
+        if task is None:
+            return {"cancelled": False, "status": "failed", "error": "TASK_NOT_FOUND"}
+        return {
+            "cancelled": task.status.value == "cancelled",
+            "status": internal_to_spec_status(task.status),
+        }
+
+    @mcp.tool()
+    async def request_input(
+        task_id: str,
+        prompt: str,
+        schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Pause the task and ask the originating client for user input.
+
+        Transitions the task from CLAIMED to INPUT_REQUIRED; the trigger-side
+        wait loop observes this, calls ctx.elicit(), and writes the response
+        back via provide_input. Call await_input_response(task_id) to block
+        for the reply.
+
+        Returns {"s": "ok", "seq": N} where N is the new input_seq.
+        """
+        _require_initialized()
+
+        store = state["task_store"]
+        task = await store.get(TaskId(value=task_id))
+        if task is None:
+            return {"s": "err", "code": "TASK_NOT_FOUND"}
+        if task.status.is_terminal:
+            return {"s": "err", "code": "TASK_ALREADY_TERMINAL", "status": task.status.value}
+        try:
+            task.request_input(prompt, schema)
+        except ValueError as e:
+            return {"s": "err", "code": "INVALID_TRANSITION", "message": str(e)}
+        await store.update(task)
+        return {"s": "ok", "seq": task.input_seq}
+
+    @mcp.tool()
+    async def await_input_response(
+        task_id: str,
+        seq: int,
+        timeout: float = 55.0,
+    ) -> dict[str, Any]:
+        """Long-poll for the trigger side to write back an input response.
+
+        Pass seq = the seq returned by request_input. When the trigger side
+        calls provide_input, the task transitions back to CLAIMED and its
+        input_response field is populated — this tool then returns it.
+
+        Returns {"s": "resp", "response": {...}} when a response arrives.
+        Returns {"s": "timeout"} if the client didn't respond in time.
+        Returns {"s": "cancelled"} if the task was cancelled while waiting.
+        """
+        _require_initialized()
+
+        store = state["task_store"]
+        tid = TaskId(value=task_id)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            task = await store.get(tid)
+            if task is None:
+                return {"s": "err", "code": "TASK_NOT_FOUND"}
+            if task.status.value == "cancelled":
+                return {"s": "cancelled"}
+            if task.status.is_terminal:
+                return {"s": "err", "code": "TASK_ALREADY_TERMINAL", "status": task.status.value}
+            # Input was provided and task transitioned back to CLAIMED
+            if task.input_seq >= seq and task.input_response is not None:
+                return {"s": "resp", "response": task.input_response}
+            await asyncio.sleep(0.25)
+        return {"s": "timeout"}
+
+    @mcp.tool()
+    async def request_sampling(
+        task_id: str,
+        messages: list[dict[str, Any]],
+        system: str | None = None,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """Ask the originating client's LLM to generate a completion.
+
+        Uses the MCP sampling primitive via ctx.session.create_message on the
+        trigger side. The task transitions to INPUT_REQUIRED with a sentinel
+        payload so the trigger loop routes to sampling instead of elicitation.
+        Use await_sampling_response(task_id) to block for the reply.
+
+        Returns {"s": "ok", "seq": N}.
+        """
+        _require_initialized()
+
+        store = state["task_store"]
+        task = await store.get(TaskId(value=task_id))
+        if task is None:
+            return {"s": "err", "code": "TASK_NOT_FOUND"}
+        if task.status.is_terminal:
+            return {"s": "err", "code": "TASK_ALREADY_TERMINAL", "status": task.status.value}
+
+        # Sampling requests reuse the input round-trip plumbing with a
+        # sentinel-marked prompt so the trigger loop can distinguish.
+        try:
+            task.request_input(
+                prompt="__metis_sampling__",
+                schema={
+                    "_metis_sampling": True,
+                    "messages": messages,
+                    "system": system,
+                    "max_tokens": max_tokens,
+                },
+            )
+        except ValueError as e:
+            return {"s": "err", "code": "INVALID_TRANSITION", "message": str(e)}
+        await store.update(task)
+        return {"s": "ok", "seq": task.input_seq}
+
+    @mcp.tool()
+    async def await_sampling_response(
+        task_id: str,
+        seq: int,
+        timeout: float = 55.0,
+    ) -> dict[str, Any]:
+        """Long-poll for the client's LLM completion. Mirror of await_input_response."""
+        _require_initialized()
+
+        store = state["task_store"]
+        tid = TaskId(value=task_id)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            task = await store.get(tid)
+            if task is None:
+                return {"s": "err", "code": "TASK_NOT_FOUND"}
+            if task.status.value == "cancelled":
+                return {"s": "cancelled"}
+            if task.status.is_terminal:
+                return {"s": "err", "code": "TASK_ALREADY_TERMINAL", "status": task.status.value}
+            if task.input_seq >= seq and task.input_response is not None:
+                return {"s": "resp", "response": task.input_response}
+            await asyncio.sleep(0.25)
+        return {"s": "timeout"}
+
     return WorkerToolsHandle(
         poll=poll,
         deliver=deliver,
         probe=probe,
+        report_progress=report_progress,
+        check_cancelled=check_cancelled,
+        request_input=request_input,
+        await_input_response=await_input_response,
+        request_sampling=request_sampling,
+        await_sampling_response=await_sampling_response,
         lifespan=lifespan,
     )

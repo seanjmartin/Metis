@@ -35,9 +35,11 @@ class TaskId:
 class TaskStatus(StrEnum):
     """Lifecycle status of a task.
 
-    Transitions: PENDING -> CLAIMED -> COMPLETE -> CONSUMED
-                 PENDING -> EXPIRED
-                 CLAIMED -> EXPIRED
+    Happy path: PENDING -> CLAIMED -> COMPLETE -> CONSUMED
+    Timeout:    PENDING|CLAIMED -> EXPIRED
+    Failure:    CLAIMED -> FAILED
+    Cancel:     PENDING|CLAIMED|INPUT_REQUIRED -> CANCELLED
+    Elicit:     CLAIMED <-> INPUT_REQUIRED  (non-terminal round-trip)
     """
 
     PENDING = "pending"
@@ -45,10 +47,18 @@ class TaskStatus(StrEnum):
     COMPLETE = "complete"
     CONSUMED = "consumed"
     EXPIRED = "expired"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    INPUT_REQUIRED = "input_required"
 
     @property
     def is_terminal(self) -> bool:
-        return self in (TaskStatus.CONSUMED, TaskStatus.EXPIRED)
+        return self in (
+            TaskStatus.CONSUMED,
+            TaskStatus.EXPIRED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+        )
 
 
 @dataclass(frozen=True)

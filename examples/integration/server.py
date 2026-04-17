@@ -35,12 +35,11 @@ _queue: TaskQueue | None = None
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     global _queue
-    _queue = TaskQueue(db_path=_db_path)
-    try:
-        yield
-    finally:
-        if _queue is not None:
-            _queue.close()
+    async with TaskQueue(db_path=_db_path) as queue:
+        _queue = queue
+        try:
+            yield
+        finally:
             _queue = None
 
 

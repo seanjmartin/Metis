@@ -102,6 +102,88 @@ class TestTaskTransitions:
         with pytest.raises(ValueError, match="Cannot transition"):
             task.expire()
 
+    def test_should_cancel_from_pending(self) -> None:
+        task = _make_task()
+        task.cancel()
+        assert task.status == TaskStatus.CANCELLED
+        assert task.cancelled_at is not None
+
+    def test_should_cancel_from_claimed(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.cancel()
+        assert task.status == TaskStatus.CANCELLED
+
+    def test_should_cancel_from_input_required(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.request_input("Why?", {"type": "object"})
+        task.cancel()
+        assert task.status == TaskStatus.CANCELLED
+
+    def test_should_reject_cancel_from_terminal(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.complete({"x": 1})
+        task.consume()
+        with pytest.raises(ValueError, match="Cannot transition"):
+            task.cancel()
+
+    def test_should_fail_from_claimed(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.fail("INTERNAL", "something went wrong")
+        assert task.status == TaskStatus.FAILED
+        assert task.error_code == "INTERNAL"
+        assert task.error_message == "something went wrong"
+        assert task.completed_at is not None
+
+    def test_should_reject_fail_from_pending(self) -> None:
+        task = _make_task()
+        with pytest.raises(ValueError, match="Cannot transition"):
+            task.fail("X", "y")
+
+    def test_request_input_moves_to_input_required(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.request_input("Pick one", {"type": "object"})
+        assert task.status == TaskStatus.INPUT_REQUIRED
+        assert task.input_prompt == "Pick one"
+        assert task.input_schema == {"type": "object"}
+        assert task.input_seq == 1
+
+    def test_provide_input_returns_to_claimed(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.request_input("Pick one", {"type": "object"})
+        task.provide_input({"choice": "a"})
+        assert task.status == TaskStatus.CLAIMED
+        assert task.input_response == {"choice": "a"}
+
+    def test_provide_input_rejects_if_not_input_required(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        with pytest.raises(ValueError, match="not awaiting input"):
+            task.provide_input({"x": 1})
+
+    def test_multiple_input_rounds_increment_seq(self) -> None:
+        task = _make_task()
+        task.claim(WorkerId(value="w1"))
+        task.request_input("q1", {})
+        task.provide_input({"a": 1})
+        task.request_input("q2", {})
+        assert task.input_seq == 2
+
+    def test_terminal_states_are_terminal(self) -> None:
+        assert TaskStatus.COMPLETE.is_terminal is False  # COMPLETE → CONSUMED still allowed
+        assert TaskStatus.CONSUMED.is_terminal is True
+        assert TaskStatus.EXPIRED.is_terminal is True
+        assert TaskStatus.FAILED.is_terminal is True
+        assert TaskStatus.CANCELLED.is_terminal is True
+        assert TaskStatus.PENDING.is_terminal is False
+        assert TaskStatus.CLAIMED.is_terminal is False
+        assert TaskStatus.INPUT_REQUIRED.is_terminal is False
+
 
 class TestTaskExpiry:
     def test_should_not_be_expired_when_fresh(self) -> None:

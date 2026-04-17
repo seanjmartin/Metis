@@ -10,7 +10,15 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from metis.domain.errors import Err, Ok, Result, TaskExpiredError, TaskNotFoundError
+from metis.domain.errors import (
+    Err,
+    Ok,
+    Result,
+    TaskCancelledError,
+    TaskExpiredError,
+    TaskFailedError,
+    TaskNotFoundError,
+)
 from metis.domain.protocols import TaskStore
 from metis.domain.value_objects import TaskId, TaskStatus
 
@@ -50,6 +58,14 @@ class WaitForResultUseCase:
 
             if task.status == TaskStatus.EXPIRED:
                 return Err(TaskExpiredError(message=f"Task {input.task_id} expired"))
+
+            if task.status == TaskStatus.CANCELLED:
+                return Err(TaskCancelledError(message=f"Task {input.task_id} was cancelled"))
+
+            if task.status == TaskStatus.FAILED:
+                msg = task.error_message or "task failed"
+                code = task.error_code or "TASK_FAILED"
+                return Err(TaskFailedError(message=f"{code}: {msg}"))
 
             if task.status == TaskStatus.CONSUMED:
                 return Ok(None)

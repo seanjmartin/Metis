@@ -59,8 +59,22 @@ Each layer depends only on layers interior to it. The domain is the innermost la
 `TaskQueue` (`src/metis/infrastructure/task_queue_facade.py`) is the public API facade. It exposes 3 methods and hides the 4-layer internals:
 
 - `enqueue(type, payload, priority, ttl_seconds, capabilities_required, session_id) -> TaskId` — sync
-- `await wait_for_result(task_id, timeout) -> dict | None` — async
+- `await wait_for_result(task_id, timeout, ctx=None) -> dict | None` — async; raises `MetisException` (wrapping a typed `MetisError` such as `TaskExpiredError`, `TaskCancelledError`, `TaskFailedError`) on domain failure. `ctx` (a FastMCP `Context`) is used to forward progress and elicitation.
+- `await cancel(task_id) -> None` — async; raises `MetisException(TaskAlreadyTerminalError)` if the task is already terminal.
+- `await provide_input(task_id, response) -> None` — async; used by the transparent elicitation loop inside `get_result`.
 - `is_worker_alive(timeout_seconds) -> bool` — sync
+
+`TaskQueue` supports both sync and async context managers — prefer `async with TaskQueue(...) as queue:` so the underlying sync connection is closed on exit.
+
+## MCP async-tasks spec alignment
+
+The trigger-side MCP tools (`enqueue`, `get_result`, `cancel`, `provide_input`) return the spec-compliant task envelope:
+
+```
+{"task": {"id": "<uuid>", "status": "working"|"input_required"|"completed"|"failed"|"cancelled"}}
+```
+
+Completed tasks include `"result"` and optionally `"metis": {"input_tokens", "output_tokens"}`. Failures include `"error": {"code", "message"}`. Internal `TaskStatus` values are translated to spec vocabulary by `metis.domain.spec_mapping.internal_to_spec_status()`.
 
 Integrating MCP servers import only `from metis import TaskQueue` and never interact with the layers directly.
 

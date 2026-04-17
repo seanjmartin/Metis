@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import aiosqlite
 
 from metis.domain.entities import Task
 from metis.domain.value_objects import TaskId, TaskPriority, TaskStatus, WorkerId
+from metis.infrastructure.database import init_async_database
 from metis.infrastructure.sqlite_task_store import SqliteTaskStore
 
 
@@ -94,6 +97,51 @@ class TestClaimNext:
 
         assert first is not None
         assert second is None
+
+
+class TestConcurrentClaim:
+    """Stress test UPDATE...RETURNING atomicity under concurrent claims.
+
+    Each claimant uses its own connection to the same file, which is the
+    real-world shape of multiple dispatcher processes or multiple tool
+    handlers in an HTTP server.
+    """
+
+    async def test_should_claim_each_task_exactly_once(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "stress.db")
+        seed_conn = await init_async_database(db_path)
+        try:
+            seed_store = SqliteTaskStore(seed_conn)
+            task_count = 20
+            for _ in range(task_count):
+                await seed_store.insert(_make_task())
+        finally:
+            await seed_conn.close()
+
+        claimant_count = 10
+
+        async def claimant(worker_index: int) -> list[TaskId]:
+            conn = await aiosqlite.connect(db_path)
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA busy_timeout=5000")
+            try:
+                store = SqliteTaskStore(conn)
+                worker = WorkerId(value=f"w{worker_index}")
+                claimed_ids: list[TaskId] = []
+                while True:
+                    claimed = await store.claim_next([], worker)
+                    if claimed is None:
+                        return claimed_ids
+                    claimed_ids.append(claimed.id)
+            finally:
+                await conn.close()
+
+        results = await asyncio.gather(*[claimant(i) for i in range(claimant_count)])
+
+        all_ids = [tid for batch in results for tid in batch]
+        assert len(all_ids) == task_count, "every task must be claimed"
+        assert len(set(all_ids)) == task_count, "no task may be claimed twice"
 
 
 class TestUpdate:

@@ -35,8 +35,15 @@ class Task:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     claimed_at: datetime | None = None
     completed_at: datetime | None = None
+    cancelled_at: datetime | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    input_prompt: str | None = None
+    input_schema: dict[str, Any] | None = None
+    input_response: dict[str, Any] | None = None
+    input_seq: int = 0
 
     def __post_init__(self) -> None:
         if not self.type or not self.type.strip():
@@ -46,11 +53,29 @@ class Task:
 
     _VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = field(
         default_factory=lambda: {
-            TaskStatus.PENDING: {TaskStatus.CLAIMED, TaskStatus.EXPIRED},
-            TaskStatus.CLAIMED: {TaskStatus.COMPLETE, TaskStatus.EXPIRED},
+            TaskStatus.PENDING: {
+                TaskStatus.CLAIMED,
+                TaskStatus.EXPIRED,
+                TaskStatus.CANCELLED,
+            },
+            TaskStatus.CLAIMED: {
+                TaskStatus.COMPLETE,
+                TaskStatus.EXPIRED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+                TaskStatus.INPUT_REQUIRED,
+            },
+            TaskStatus.INPUT_REQUIRED: {
+                TaskStatus.CLAIMED,
+                TaskStatus.EXPIRED,
+                TaskStatus.CANCELLED,
+                TaskStatus.FAILED,
+            },
             TaskStatus.COMPLETE: {TaskStatus.CONSUMED},
             TaskStatus.CONSUMED: set(),
             TaskStatus.EXPIRED: set(),
+            TaskStatus.FAILED: set(),
+            TaskStatus.CANCELLED: set(),
         },
         init=False,
         repr=False,
@@ -77,8 +102,37 @@ class Task:
         self._transition_to(TaskStatus.CONSUMED)
 
     def expire(self) -> None:
-        """Transition from PENDING or CLAIMED to EXPIRED."""
+        """Transition from PENDING, CLAIMED, or INPUT_REQUIRED to EXPIRED."""
         self._transition_to(TaskStatus.EXPIRED)
+
+    def fail(self, error_code: str, error_message: str) -> None:
+        """Transition from CLAIMED to FAILED with a structured error."""
+        self._transition_to(TaskStatus.FAILED)
+        self.error_code = error_code
+        self.error_message = error_message
+        self.completed_at = datetime.now(UTC)
+
+    def cancel(self) -> None:
+        """Transition a non-terminal task to CANCELLED."""
+        self._transition_to(TaskStatus.CANCELLED)
+        self.cancelled_at = datetime.now(UTC)
+
+    def request_input(self, prompt: str, schema: dict[str, Any]) -> None:
+        """Transition from CLAIMED to INPUT_REQUIRED with a prompt and response schema."""
+        self._transition_to(TaskStatus.INPUT_REQUIRED)
+        self.input_prompt = prompt
+        self.input_schema = schema
+        self.input_response = None
+        self.input_seq += 1
+
+    def provide_input(self, response: dict[str, Any]) -> None:
+        """Store a user response and transition from INPUT_REQUIRED back to CLAIMED."""
+        if self.status != TaskStatus.INPUT_REQUIRED:
+            raise ValueError(
+                f"Cannot provide_input in status {self.status.value!r}; task is not awaiting input"
+            )
+        self.input_response = response
+        self._transition_to(TaskStatus.CLAIMED)
 
     def _transition_to(self, new_status: TaskStatus) -> None:
         allowed = self._VALID_TRANSITIONS.get(self.status, set())

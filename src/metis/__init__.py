@@ -10,12 +10,26 @@ NOT responsible for:
 """
 
 from metis.domain.entities import Task
+from metis.domain.errors import (
+    InvalidTransitionError,
+    MetisError,
+    MetisException,
+    NoWorkerError,
+    TaskExpiredError,
+    TaskNotFoundError,
+)
 from metis.domain.value_objects import TaskId, TaskStatus
 from metis.infrastructure.task_queue_facade import TaskQueue
 
 __all__ = [
+    "InvalidTransitionError",
+    "MetisError",
+    "MetisException",
+    "NoWorkerError",
     "Task",
+    "TaskExpiredError",
     "TaskId",
+    "TaskNotFoundError",
     "TaskQueue",
     "TaskStatus",
 ]

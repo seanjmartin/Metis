@@ -89,19 +89,21 @@ Presentation → Application → Domain ← Infrastructure
 ```python
 from metis import TaskQueue
 
-queue = TaskQueue(db_path="~/.myserver/metis.db")
-task_id = queue.enqueue(
-    type="classify",
-    payload={...},
-    ttl_seconds=60,
-    capabilities_required=["browse-as-me"],  # only workers with this capability can claim
-    session_id="user-alice",  # scope to a session (optional, for multi-user)
-)
-result = await queue.wait_for_result(task_id, timeout=30)
-is_alive = queue.is_worker_alive()
+async with TaskQueue(db_path="~/.myserver/metis.db") as queue:
+    task_id = queue.enqueue(
+        type="classify",
+        payload={...},
+        ttl_seconds=60,
+        capabilities_required=["browse-as-me"],  # only workers with this capability can claim
+        session_id="user-alice",  # scope to a session (optional, for multi-user)
+    )
+    result = await queue.wait_for_result(task_id, timeout=30)
+    is_alive = queue.is_worker_alive()
 ```
 
 `enqueue()` and `is_worker_alive()` are sync. `wait_for_result()` is async. See [ADR 002](docs/adr/002-sync-enqueue-async-wait.md) for why.
+
+`wait_for_result()` returns `dict | None` (`None` on timeout) and raises `MetisException` with a typed `.error` attribute (e.g. `TaskExpiredError`, `TaskNotFoundError`) on domain failures. `TaskQueue` supports both `async with` and `with` — or call `.close()` explicitly.
 
 The `deliver()` tool accepts optional `input_tokens` and `output_tokens` for per-task cost tracking.
 

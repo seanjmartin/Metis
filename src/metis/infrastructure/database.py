@@ -25,10 +25,17 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at  TEXT NOT NULL,
     claimed_at  TEXT,
     completed_at TEXT,
+    cancelled_at TEXT,
     capabilities_required TEXT NOT NULL DEFAULT '[]',
     session_id    TEXT,
     input_tokens  INTEGER,
-    output_tokens INTEGER
+    output_tokens INTEGER,
+    error_code     TEXT,
+    error_message  TEXT,
+    input_prompt   TEXT,
+    input_schema   TEXT,
+    input_response TEXT,
+    input_seq      INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS heartbeats (
@@ -36,11 +43,37 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     capabilities TEXT NOT NULL,
     last_seen    TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_progress (
+    task_id     TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    progress    REAL NOT NULL,
+    total       REAL,
+    message     TEXT,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (task_id, seq)
+);
 """
 
 
 _MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN session_id TEXT",
+    "ALTER TABLE tasks ADD COLUMN error_code TEXT",
+    "ALTER TABLE tasks ADD COLUMN error_message TEXT",
+    "ALTER TABLE tasks ADD COLUMN cancelled_at TEXT",
+    "ALTER TABLE tasks ADD COLUMN input_prompt TEXT",
+    "ALTER TABLE tasks ADD COLUMN input_schema TEXT",
+    "ALTER TABLE tasks ADD COLUMN input_response TEXT",
+    "ALTER TABLE tasks ADD COLUMN input_seq INTEGER NOT NULL DEFAULT 0",
+    """CREATE TABLE IF NOT EXISTS task_progress (
+        task_id     TEXT NOT NULL,
+        seq         INTEGER NOT NULL,
+        progress    REAL NOT NULL,
+        total       REAL,
+        message     TEXT,
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (task_id, seq)
+    )""",
 ]
 
 

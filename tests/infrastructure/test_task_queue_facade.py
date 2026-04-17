@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from metis import TaskQueue
+from metis.domain.errors import MetisException, TaskExpiredError
 from metis.domain.value_objects import TaskId
 
 
@@ -44,7 +45,7 @@ class TestWaitForResult:
         assert result is None
         queue.close()
 
-    async def test_should_raise_on_expired_task(self, tmp_path: Path) -> None:
+    async def test_should_raise_typed_exception_on_expired_task(self, tmp_path: Path) -> None:
         queue = TaskQueue(db_path=str(tmp_path / "test.db"))
         task_id = queue.enqueue(type="test", payload={}, ttl_seconds=0)
 
@@ -57,8 +58,10 @@ class TestWaitForResult:
         conn.execute("UPDATE tasks SET status = 'expired' WHERE id = ?", (task_id.value,))
         conn.commit()
 
-        with pytest.raises(ValueError, match="TASK_EXPIRED"):
+        with pytest.raises(MetisException) as exc_info:
             await queue.wait_for_result(task_id, timeout=1.0)
+        assert isinstance(exc_info.value.error, TaskExpiredError)
+        assert exc_info.value.error.code == "TASK_EXPIRED"
         queue.close()
 
 
@@ -97,3 +100,30 @@ class TestClose:
         queue = TaskQueue(db_path=str(tmp_path / "test.db"))
         queue.close()
         queue.close()  # Should not raise
+
+
+class TestContextManager:
+    def test_sync_context_manager_closes_on_exit(self, tmp_path: Path) -> None:
+        with TaskQueue(db_path=str(tmp_path / "test.db")) as queue:
+            queue.enqueue(type="test", payload={})
+            assert queue._sync_conn is not None
+        assert queue._sync_conn is None
+
+    def test_sync_context_manager_closes_on_exception(self, tmp_path: Path) -> None:
+        queue_ref: TaskQueue | None = None
+        with (
+            pytest.raises(RuntimeError),
+            TaskQueue(db_path=str(tmp_path / "test.db")) as queue,
+        ):
+            queue_ref = queue
+            queue.enqueue(type="test", payload={})
+            raise RuntimeError("boom")
+        assert queue_ref is not None
+        assert queue_ref._sync_conn is None
+
+    async def test_async_context_manager_closes_on_exit(self, tmp_path: Path) -> None:
+        async with TaskQueue(db_path=str(tmp_path / "test.db")) as queue:
+            task_id = queue.enqueue(type="test", payload={})
+            assert isinstance(task_id, TaskId)
+            assert queue._sync_conn is not None
+        assert queue._sync_conn is None
