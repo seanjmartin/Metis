@@ -71,15 +71,17 @@ Different concerns, different layers. They compose.
 
 ## Spec-aligned
 
-Metis implements the MCP async-tasks specification (2025-11-25):
+Metis implements the [MCP async-tasks specification (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks):
 
-- **Tool handles** return spec-compliant envelopes: `{"task": {"id", "status"}, "result"?, "error"?}`
-- **Cancellation** via `cancel(task_id)` with terminal-state guard (-32602)
-- **Progress** forwarded through `ctx.report_progress()` on the originating client's progressToken
-- **Elicitation** — dispatchers can ask the user for input mid-task via `ctx.elicit()`, transparently to the caller
-- **Sampling** — dispatchers can invoke the client's LLM for sub-completions, and `enqueue_with_sampling_fallback` degrades gracefully when no dispatcher is running
+- **Tool handles** return spec-compliant envelopes: `{"task": {"id", "status"}, "result"?, "error"?}` — with the five spec states `working` / `input_required` / `completed` / `failed` / `cancelled` and the terminal-state invariant ([spec §Task Status Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle))
+- **Cancellation** via `cancel(task_id)` — terminal tasks are rejected with JSON-RPC `-32602` per [spec §Task Cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation)
+- **Progress** forwarded through `ctx.report_progress()` on the originating client's progressToken — reuses the existing MCP [progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress) channel, as [§Task Progress Notifications](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-progress-notifications) requires
+- **Elicitation** — dispatchers can ask the user for input mid-task via [`ctx.elicit()`](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation), transparently to the caller (spec's `input_required` status)
+- **Sampling** — dispatchers can invoke the client's LLM via [`sampling/createMessage`](https://modelcontextprotocol.io/specification/2025-11-25/client/sampling) for sub-completions, and `enqueue_with_sampling_fallback` degrades gracefully when no dispatcher is running
 
-Metis-distinctive capabilities not in the spec (shared dispatcher pool, SQLite persistence, session isolation, capability filtering) are preserved alongside.
+Spec proposal that became the Tasks primitive: [SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686).
+
+Metis-distinctive capabilities *not* in the spec (shared dispatcher pool, SQLite persistence, session isolation, capability filtering) are preserved alongside.
 
 ```
 LLM conversation (clean, focused on user)
