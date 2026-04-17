@@ -350,6 +350,7 @@ ruff format --check src/ tests/
 - [examples/http_multiuser/](examples/http_multiuser/) — multi-user HTTP server with session isolation ([testing guide](#testing-the-http-example-with-claude-code))
 - [examples/simulated/](examples/simulated/) — simulated dispatcher for testing without an LLM
 - [examples/live/](examples/live/) — live dispatcher with real LLM round-trips
+- [examples/deepagents-dispatcher/](examples/deepagents-dispatcher/) — Metis dispatcher built with deepagents, powered by the caller's LLM via MCP sampling (BYOT)
 
 ## Testing the HTTP example with Claude Code
 
@@ -427,6 +428,14 @@ The bridge lives in [`src/metis/langchain/`](src/metis/langchain/) and is indepe
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — layer responsibilities and dependency rules
 - [PATTERNS.md](docs/PATTERNS.md) — canonical vertical slice reference
 - [DISPATCHER.md](docs/DISPATCHER.md) — dispatcher architecture, prompts, spec-aligned capabilities, long-poll tuning
+- [ai-ready-architecture.md](docs/ai-ready-architecture.md) — principles this codebase is structured around
+
+### Architecture decision records
+
+- [ADR 001: SQLite as Message Bus](docs/adr/001-sqlite-as-message-bus.md)
+- [ADR 002: Sync Enqueue, Async Wait](docs/adr/002-sync-enqueue-async-wait.md)
+- [ADR 003: MCP Async-Tasks Spec Alignment (2025-11-25)](docs/adr/003-mcp-async-tasks-alignment.md)
+- [ADR 004: LangChain Bridge — Placement, Scope, and Session Typing](docs/adr/004-langchain-bridge-scope.md)
 
 ## License
 
