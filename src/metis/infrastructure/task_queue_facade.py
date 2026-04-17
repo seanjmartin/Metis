@@ -18,10 +18,15 @@ import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from metis.domain.value_objects import TaskId
+from metis.domain.value_objects import TaskId, TaskStatus
 from metis.infrastructure.database import SCHEMA_SQL, _run_migrations
+
+if TYPE_CHECKING:
+    # Imported purely for type hints. `mcp` is an optional dependency (worker extra)
+    # so we must not import it at runtime from core infrastructure.
+    from mcp.server.fastmcp import Context
 
 _POLL_INTERVAL_SECONDS = 0.1
 _PROGRESS_DRAIN_INTERVAL_SECONDS = 0.25
@@ -191,7 +196,7 @@ class TaskQueue:
         self,
         task_id: TaskId,
         timeout: float = 300.0,
-        ctx: object | None = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any] | None:
         """Wait for a task's result. Async — polls until result or timeout.
 
@@ -445,10 +450,8 @@ class TaskQueue:
         last_seen = datetime.fromisoformat(row["last_seen"])
         return datetime.now(UTC) < last_seen + timedelta(seconds=timeout_seconds)
 
-    def get_task_status(self, task_id: TaskId) -> object | None:
+    def get_task_status(self, task_id: TaskId) -> TaskStatus | None:
         """Return the current TaskStatus of a task, or None if not found. Synchronous."""
-        from metis.domain.value_objects import TaskStatus
-
         conn = self._get_sync_conn()
         row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id.value,)).fetchone()
         if row is None:

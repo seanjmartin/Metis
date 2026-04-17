@@ -22,7 +22,7 @@ NOT responsible for:
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
@@ -40,29 +40,35 @@ from metis.langchain._message_conversion import (
     langchain_tools_to_mcp,
     mcp_result_to_ai_message,
 )
+from metis.langchain._protocols import SamplingSession
 
 DEFAULT_MAX_TOKENS = 4096
+
+IncludeContext = Literal["thisServer", "allServers"]
 
 
 class MCPSamplingChatModel(BaseChatModel):
     """A LangChain chat model backed by an MCP ``ServerSession``.
 
-    Pass any object exposing ``async create_message(**kwargs) -> CreateMessageResult`` —
-    in practice this is ``ctx.session`` from a FastMCP tool handler.
+    Pass any object matching the :class:`SamplingSession` protocol — an async
+    ``create_message(**kwargs)`` method. In practice this is ``ctx.session``
+    from a FastMCP tool handler.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    session: Any = Field(
+    session: SamplingSession = Field(
         description="Object with an async create_message(**kwargs) method — typically ctx.session.",
     )
     default_max_tokens: int = Field(
         default=DEFAULT_MAX_TOKENS,
         description="max_tokens passed to create_message when the caller doesn't override.",
     )
-    include_context: str | None = Field(
+    include_context: IncludeContext | None = Field(
         default=None,
-        description="MCP sampling includeContext value (None | 'thisServer' | 'allServers').",
+        description=(
+            "MCP sampling includeContext value (spec-enumerated: thisServer|allServers|None)."
+        ),
     )
 
     @property
