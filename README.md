@@ -396,6 +396,24 @@ python examples/http_multiuser/test_isolation.py
 python examples/http_multiuser/test_http_e2e.py
 ```
 
+## LangChain bridge — compose with deepagents (BYOT)
+
+Metis ships an optional LangChain adapter that lets any `BaseChatModel` consumer (deepagents, LangGraph, LangChain itself) run on the MCP client's LLM via sampling — no dispatcher-side API key required. Same **BYOT** economics: tokens bill to the caller.
+
+```python
+from metis.langchain import MCPSamplingChatModel
+from deepagents import create_deep_agent
+
+# Inside an MCP tool handler — ctx is the FastMCP Context
+model = MCPSamplingChatModel(session=ctx.session)
+agent = create_deep_agent(model=model, ...)
+result = await agent.ainvoke({"messages": [...]})
+```
+
+Install with `pip install metis[langchain-bridge]`. See [`examples/deepagents-dispatcher/`](examples/deepagents-dispatcher/) for a runnable Metis dispatcher built with deepagents, powered entirely by the caller's LLM via MCP sampling. This is the clean composition story: **Metis routes, deepagents reasons, the user's subscription pays.**
+
+The bridge lives in [`src/metis/langchain/`](src/metis/langchain/) and is independently useful — any MCP server that exposes tools to a LangChain-powered backend can use it, with or without Metis.
+
 ## Honest tradeoffs
 
 - **Someone has to run the dispatcher.** It's a long-running background agent in the user's session. For personal software this is fine — the user *is* the operator. For multi-tenant server deployments it's a real supervision burden. We're not pretending otherwise.

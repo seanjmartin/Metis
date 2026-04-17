@@ -107,6 +107,10 @@ async with TaskQueue(db_path="~/.myserver/metis.db") as queue:
 
 The `deliver()` tool accepts optional `input_tokens` and `output_tokens` for per-task cost tracking.
 
+### LangChain bridge (optional extra)
+
+`metis.langchain.MCPSamplingChatModel` is a `BaseChatModel` that routes LLM calls through MCP sampling — use it to power deepagents/LangGraph from the caller's LLM (BYOT) rather than a dispatcher-side API key. Installed via `pip install metis[langchain-bridge]`. See [`examples/deepagents-dispatcher/`](examples/deepagents-dispatcher/).
+
 ### Embeddable (for hosting tools in an existing MCP server)
 
 ```python

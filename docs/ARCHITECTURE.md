@@ -78,6 +78,12 @@ Completed tasks include `"result"` and optionally `"metis": {"input_tokens", "ou
 
 Integrating MCP servers import only `from metis import TaskQueue` and never interact with the layers directly.
 
+## LangChain bridge (optional extra)
+
+`src/metis/langchain/` is an external-framework adapter, not part of the core four-layer architecture. It provides `MCPSamplingChatModel`, a LangChain `BaseChatModel` that routes completions through MCP sampling (`ServerSession.create_message(...)`) — letting deepagents, LangGraph, or any LangChain consumer borrow the MCP client's LLM instead of bringing its own API key.
+
+The bridge has a single outward-facing dependency (`langchain-core`, optional via the `langchain-bridge` extra) and is additive: nothing in the core package imports from it. It follows the same "contain external tech in its own module" hygiene as `mcp.server.fastmcp` imports in `presentation/`.
+
 ## Two MCP Servers, One Database
 
 ```
